@@ -1,0 +1,37 @@
+package com.example.speech.data
+
+import com.example.speech.api.EmbeddingModel
+
+data class ModelFile(
+    val id: String,
+    val assetPath: String,
+    val sizeBytes: Long,
+    val sha256: String,
+) {
+    val fileName: String get() = assetPath.substringAfterLast('/')
+}
+
+object ModelRegistry {
+
+    val ASR = ModelFile(
+        id = "asr_gigaam_v3",
+        assetPath = BundledModels.ASR,
+        sizeBytes = 319_869_121L,
+        sha256 = "0aacb41f70f0f5aaac4b45dd430337b9e16b180f22c72af04db8516e7609c3c0",
+    )
+
+    val EMBEDDING_CAMPLUS = ModelFile(
+        id = "embedding_camplus",
+        assetPath = BundledModels.EMBEDDING_CAMPLUS,
+        sizeBytes = 28_281_138L,
+        sha256 = "f682b514c05d947ee3fa91cd6ec6c5c7543479a128373fa29b1faedccd21fd11",
+    )
+
+    val required: List<ModelFile> = listOf(ASR, EMBEDDING_CAMPLUS)
+
+    val totalBytes: Long = required.sumOf { it.sizeBytes }
+
+    fun embeddingFor(model: EmbeddingModel): ModelFile = when (model) {
+        EmbeddingModel.CAMPLUS -> EMBEDDING_CAMPLUS
+    }
+}
