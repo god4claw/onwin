@@ -1,0 +1,319 @@
+package com.example.speech.bench
+
+import android.os.SystemClock
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.example.speech.api.Segment
+import com.example.speech.api.SpeechConfig
+import com.example.speech.api.Stage
+import com.example.speech.api.StreamingEvent
+import com.example.speech.api.TranscriptionEvent
+import com.example.speech.audio.WavReader
+import com.example.speech.impl.SherpaStreamingTranscriber
+import com.example.speech.impl.SherpaTranscriber
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.File
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
+
+@RunWith(AndroidJUnit4::class)
+class SpeechBenchmarkTest {
+
+    private val instrumentation = InstrumentationRegistry.getInstrumentation()
+    private val context = instrumentation.targetContext
+    private val args = InstrumentationRegistry.getArguments()
+
+    @Test
+    fun benchmark(): Unit = runBlocking {
+        val wav = File(requiredArg("wav"))
+        require(wav.isFile) { "WAV не найден на устройстве: ${wav.absolutePath}" }
+
+        val mode = (args.getString("mode") ?: "batch").lowercase(Locale.US)
+        require(mode in MODES) {
+            "mode должен быть одним из ${MODES.joinToString()}, получено: $mode"
+        }
+
+        val threads = positiveInt("threads", 4)
+        val runs = positiveInt("runs", 3)
+        val chunkMs = positiveInt("chunk_ms", 100)
+
+        val speakersArg = args.getString("speakers")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: "auto"
+        val expectedSpeakers = if (speakersArg.equals("auto", ignoreCase = true)) {
+            null
+        } else {
+            speakersArg.toIntOrNull()?.also {
+                require(it >= 1) { "speakers должен быть >= 1, получено: $it" }
+            } ?: error("speakers должен быть auto или целым числом, получено: $speakersArg")
+        }
+
+        val label = args.getString("label")?.takeIf { it.isNotBlank() }
+            ?: wav.nameWithoutExtension
+
+        val wavInfo = readWavInfo(wav)
+        val audioMs = wavInfo.durationMs
+        val streamingSamples = if (mode == "streaming" || mode == "both") {
+            WavReader.readMono16k(wav)
+        } else {
+            null
+        }
+
+        val config = BenchmarkConfig(
+            threads = threads,
+            runs = runs,
+            speakers = speakersArg,
+            chunkMs = chunkMs,
+            onlineClusterThreshold = SpeechConfig().onlineClusterThreshold,
+        )
+
+        val batch = if (mode == "batch" || mode == "both") {
+            runBatch(wav, audioMs, threads, runs, expectedSpeakers)
+        } else {
+            null
+        }
+        val streaming = if (streamingSamples != null) {
+            runStreaming(streamingSamples, audioMs, threads, runs, chunkMs)
+        } else {
+            null
+        }
+
+        val report = BenchmarkReport(
+            generatedAt = isoNow(),
+            label = label,
+            mode = mode,
+            audio = BenchmarkAudio(
+                path = wav.absolutePath,
+                durationMs = audioMs,
+                samples = streamingSamples?.size ?: wavInfo.samples,
+            ),
+            config = config,
+            device = readBenchmarkDevice(context),
+            batch = batch,
+            streaming = streaming,
+        )
+
+        val outFile = outputFile()
+        val json = report.toJson()
+        val table = report.formatTable()
+        outFile.writeText(json)
+
+        val tableFile = File(outFile.parentFile, outFile.nameWithoutExtension + ".txt")
+        tableFile.writeText(table)
+        writeLatest(outFile, json, table)
+    }
+
+    private suspend fun runBatch(
+        wav: File,
+        audioMs: Long,
+        threads: Int,
+        runs: Int,
+        expectedSpeakers: Int?,
+    ): BatchResult {
+        val transcriber = SherpaTranscriber(context)
+        val loadStart = SystemClock.elapsedRealtime()
+        try {
+            transcriber.load(SpeechConfig(numThreads = threads))
+            val modelLoadMs = SystemClock.elapsedRealtime() - loadStart
+            val results = ArrayList<BatchRun>(runs)
+            repeat(runs) { index ->
+                results += runBatchOnce(
+                    transcriber = transcriber,
+                    wav = wav,
+                    audioMs = audioMs,
+                    index = index + 1,
+                    expectedSpeakers = expectedSpeakers,
+                )
+            }
+            return BatchResult(modelLoadMs = modelLoadMs, runs = results)
+        } finally {
+            runCatching { transcriber.release() }
+        }
+    }
+
+    private suspend fun runBatchOnce(
+        transcriber: SherpaTranscriber,
+        wav: File,
+        audioMs: Long,
+        index: Int,
+        expectedSpeakers: Int?,
+    ): BatchRun {
+        val startedAt = SystemClock.elapsedRealtime()
+        var recognitionStart = 0L
+        var doneAt = 0L
+        var segments = emptyList<Segment>()
+
+        transcriber.transcribe(wav, expectedSpeakers).collect { event ->
+            when (event) {
+                is TranscriptionEvent.Progress -> {
+                    if (event.stage == Stage.RECOGNITION && recognitionStart == 0L) {
+                        recognitionStart = SystemClock.elapsedRealtime()
+                    }
+                }
+
+                is TranscriptionEvent.SegmentReady -> Unit
+
+                is TranscriptionEvent.Done -> {
+                    doneAt = SystemClock.elapsedRealtime()
+                    segments = event.segments
+                }
+
+                is TranscriptionEvent.Failed -> throw event.cause
+            }
+        }
+
+        check(doneAt > 0L) { "Batch-поток завершился без Done" }
+        val boundary = if (recognitionStart > 0L) recognitionStart else doneAt
+        val preparationMs = boundary - startedAt
+
+        return BatchRun(
+            index = index,
+            audioMs = audioMs,
+            totalMs = doneAt - startedAt,
+            diarizationMs = if (expectedSpeakers == 1) 0L else preparationMs,
+            recognitionMs = doneAt - boundary,
+            preparationMs = if (expectedSpeakers == 1) preparationMs else 0L,
+            pssMb = currentPssMb(context),
+            nativeHeapMb = nativeHeapMb(),
+            segments = segments,
+        )
+    }
+
+    private suspend fun runStreaming(
+        samples: FloatArray,
+        audioMs: Long,
+        threads: Int,
+        runs: Int,
+        chunkMs: Int,
+    ): StreamingResult {
+        val transcriber = SherpaStreamingTranscriber(context)
+        val loadStart = SystemClock.elapsedRealtime()
+        try {
+            transcriber.load(SpeechConfig(numThreads = threads))
+            val modelLoadMs = SystemClock.elapsedRealtime() - loadStart
+            val results = ArrayList<StreamingRun>(runs)
+            repeat(runs) { index ->
+                results += runStreamingOnce(
+                    transcriber = transcriber,
+                    samples = samples,
+                    audioMs = audioMs,
+                    index = index + 1,
+                    chunkMs = chunkMs,
+                )
+            }
+            return StreamingResult(modelLoadMs = modelLoadMs, runs = results)
+        } finally {
+            runCatching { transcriber.release() }
+        }
+    }
+
+    private suspend fun runStreamingOnce(
+        transcriber: SherpaStreamingTranscriber,
+        samples: FloatArray,
+        audioMs: Long,
+        index: Int,
+        chunkMs: Int,
+    ): StreamingRun {
+        val startedAt = SystemClock.elapsedRealtime()
+        val feedEndAt = AtomicLong(0L)
+        var firstSpeechAt = 0L
+        var firstUtteranceAt = 0L
+        var doneAt = 0L
+        var segments = emptyList<Segment>()
+
+        val chunkSize = (BENCHMARK_SAMPLE_RATE * chunkMs / 1000).coerceAtLeast(1)
+        val audio = flow {
+            var offset = 0
+            while (offset < samples.size) {
+                val end = minOf(offset + chunkSize, samples.size)
+                emit(samples.copyOfRange(offset, end))
+                offset = end
+            }
+            feedEndAt.set(SystemClock.elapsedRealtime() - startedAt)
+        }
+
+        transcriber.transcribeStream(audio).collect { event ->
+            val now = SystemClock.elapsedRealtime()
+            when (event) {
+                is StreamingEvent.SpeechStarted -> {
+                    if (firstSpeechAt == 0L) firstSpeechAt = now - startedAt
+                }
+
+                is StreamingEvent.Utterance -> {
+                    if (firstUtteranceAt == 0L) firstUtteranceAt = now - startedAt
+                }
+
+                is StreamingEvent.Done -> {
+                    doneAt = now
+                    segments = event.segments
+                }
+
+                is StreamingEvent.Failed -> throw event.cause
+            }
+        }
+
+        check(doneAt > 0L) { "Streaming-поток завершился без Done" }
+        val totalMs = doneAt - startedAt
+        val feedMs = feedEndAt.get().takeIf { it > 0L } ?: totalMs
+
+        return StreamingRun(
+            index = index,
+            audioMs = audioMs,
+            totalMs = totalMs,
+            feedMs = feedMs,
+            drainMs = (totalMs - feedMs).coerceAtLeast(0L),
+            firstSpeechMs = firstSpeechAt,
+            firstUtteranceMs = firstUtteranceAt,
+            pssMb = currentPssMb(context),
+            nativeHeapMb = nativeHeapMb(),
+            segments = segments,
+        )
+    }
+
+    private fun requiredArg(name: String): String =
+        args.getString(name)?.takeIf { it.isNotBlank() }
+            ?: error("Не задан аргумент -e $name <значение>")
+
+    private fun positiveInt(name: String, default: Int): Int {
+        val raw = args.getString(name)?.takeIf { it.isNotBlank() } ?: return default
+        val value = raw.toIntOrNull()
+            ?: error("$name должен быть целым числом, получено: $raw")
+        require(value >= 1) { "$name должен быть >= 1, получено: $value" }
+        return value
+    }
+
+    private fun outputFile(): File {
+        val raw = args.getString("out")?.takeIf { it.isNotBlank() }
+        val file = if (raw != null) {
+            File(raw)
+        } else {
+            val dir = context.getExternalFilesDir(null)
+                ?: error("External files dir недоступен: некуда сохранить результат")
+            File(dir, "bench-results/latest.json")
+        }
+        require(file.extension.equals("json", ignoreCase = true)) {
+            "out должен указывать на .json, получено: ${file.absolutePath}"
+        }
+        file.parentFile?.mkdirs()
+        return file
+    }
+
+    private fun writeLatest(outFile: File, json: String, table: String) {
+        val dir = outFile.parentFile ?: return
+        val latestJson = File(dir, "latest.json")
+        val latestTxt = File(dir, "latest.txt")
+        if (outFile.canonicalFile != latestJson.canonicalFile) {
+            latestJson.writeText(json)
+            latestTxt.writeText(table)
+        }
+    }
+
+    private companion object {
+        val MODES = setOf("batch", "streaming", "both")
+    }
+}
