@@ -13,6 +13,9 @@ internal class SherpaVadEngine(
     numThreads: Int = 1,
 ) : VadEngine {
 
+    private val maxSpeechSamples =
+        (config.maxSpeechMs.toLong() * VadSegmenter.SAMPLE_RATE / 1000L).toInt().coerceAtLeast(1)
+
     private val vad = Vad(
         assetManager = assetManager,
         config = VadModelConfig(
@@ -38,9 +41,10 @@ internal class SherpaVadEngine(
         while (!vad.empty()) {
             val segment = vad.front()
             vad.pop()
-            result += VadEngine.RawSegment(
+            result += splitLongVadSegment(
                 startSample = segment.start.toLong(),
                 samples = segment.samples,
+                maxSamples = maxSpeechSamples,
             )
         }
         return result

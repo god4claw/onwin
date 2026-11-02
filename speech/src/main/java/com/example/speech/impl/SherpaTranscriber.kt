@@ -162,7 +162,19 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
 
             events.send(TranscriptionEvent.Progress(Stage.DIARIZATION, 1f))
 
-            val rawSegments = mergeShortFragments(diarizedSegments)
+            val mergedSegments = mergeShortFragments(diarizedSegments)
+            // Auto-режим не знает истинного числа спикеров, поэтому мелкие
+            // кластеры от перекластеризации нужно убирать. В fixed-режиме
+            // пользователь явно задал число — не трогаем его результат.
+            val rawSegments = if (expectedSpeakers == null) {
+                pruneTinyClusters(
+                    segments = mergedSegments,
+                    minSupportMs = config.clusterPruneMinMs.toLong(),
+                    minFraction = config.clusterPruneMinFraction,
+                )
+            } else {
+                mergedSegments
+            }
 
             val speakerIdMap = HashMap<Int, Int>()
             val segments = rawSegments.map { raw ->
@@ -210,46 +222,6 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
         } catch (t: Throwable) {
             events.send(TranscriptionEvent.Failed(t))
         }
-    }
-
-    private fun mergeShortFragments(segments: List<RawSegment>): List<RawSegment> {
-        if (segments.size < 2) return segments
-        val sorted = segments.sortedBy { it.startSec }
-        val result = ArrayList<RawSegment>(sorted.size)
-        var index = 0
-
-        while (index < sorted.size) {
-            val current = sorted[index]
-            val currentDuration = current.endSec - current.startSec
-            val previous = result.lastOrNull()
-            val previousDuration = previous?.let { it.endSec - it.startSec } ?: 0f
-
-            if (previous != null &&
-                currentDuration < SHORT_FRAGMENT_SEC &&
-                current.startSec - previous.endSec <= MAX_FRAGMENT_GAP_SEC &&
-                previousDuration > currentDuration * 2f
-            ) {
-                result[result.lastIndex] = previous.copy(endSec = current.endSec)
-                index += 1
-                continue
-            }
-
-            val next = sorted.getOrNull(index + 1)
-            if (next != null &&
-                currentDuration < SHORT_FRAGMENT_SEC &&
-                next.startSec - current.endSec <= MAX_FRAGMENT_GAP_SEC &&
-                (next.endSec - next.startSec) > currentDuration * 2f
-            ) {
-                result += next.copy(startSec = current.startSec)
-                index += 2
-                continue
-            }
-
-            result += current
-            index += 1
-        }
-
-        return result
     }
 
     private fun prepareDiarization(
@@ -360,12 +332,6 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
         embeddingPath = null
     }
 
-    private data class RawSegment(
-        val startSec: Float,
-        val endSec: Float,
-        val speaker: Int,
-    )
-
     private companion object {
         const val SAMPLE_RATE = 16_000
         const val MIN_SPEAKERS = 1
@@ -376,8 +342,5 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
         const val MIN_DURATION_OFF = 0.5f
 
         const val MIN_SEGMENT_MS = 200L
-
-        const val SHORT_FRAGMENT_SEC = 0.7f
-        const val MAX_FRAGMENT_GAP_SEC = 0.25f
     }
 }

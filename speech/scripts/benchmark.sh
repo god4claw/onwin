@@ -12,6 +12,11 @@ Options:
   --threads <n>       ASR threads (default: 4)
   --runs <n>          Runs per mode (default: 3)
   --chunk-ms <n>      Streaming chunk size in ms (default: 100)
+  --auto-threshold <x>    Batch auto-cluster threshold, 0..1 (default: 0.6)
+  --online-threshold <x>  Streaming online-cluster threshold, 0..1 (default: 0.6)
+  --prune-min-ms <n>      Minimum cluster duration after pruning (default: 3000)
+  --prune-min-fraction <x> Minimum cluster speech fraction, 0..1 (default: 0.05)
+  --speaker-change-threshold <x> Speaker-change cosine threshold, 0..1 (default: 0.65)
   --serial <serial>   adb device serial (default: first device)
   --out <dir>         Local output directory (default: bench-results)
   --no-build          Skip Gradle build/install
@@ -25,6 +30,11 @@ SPEAKERS="auto"
 THREADS=4
 RUNS=3
 CHUNK_MS=100
+AUTO_THRESHOLD="0.80"
+ONLINE_THRESHOLD="0.45"
+PRUNE_MIN_MS=3000
+PRUNE_MIN_FRACTION="0.05"
+SPEAKER_CHANGE_THRESHOLD="0.65"
 SERIAL=""
 OUT_DIR="bench-results"
 NO_BUILD=0
@@ -37,6 +47,11 @@ while [[ $# -gt 0 ]]; do
         --threads) THREADS="${2:?--threads requires a value}"; shift 2 ;;
         --runs) RUNS="${2:?--runs requires a value}"; shift 2 ;;
         --chunk-ms) CHUNK_MS="${2:?--chunk-ms requires a value}"; shift 2 ;;
+        --auto-threshold) AUTO_THRESHOLD="${2:?--auto-threshold requires a value}"; shift 2 ;;
+        --online-threshold) ONLINE_THRESHOLD="${2:?--online-threshold requires a value}"; shift 2 ;;
+        --prune-min-ms) PRUNE_MIN_MS="${2:?--prune-min-ms requires a value}"; shift 2 ;;
+        --prune-min-fraction) PRUNE_MIN_FRACTION="${2:?--prune-min-fraction requires a value}"; shift 2 ;;
+        --speaker-change-threshold) SPEAKER_CHANGE_THRESHOLD="${2:?--speaker-change-threshold requires a value}"; shift 2 ;;
         --serial) SERIAL="${2:?--serial requires a value}"; shift 2 ;;
         --out) OUT_DIR="${2:?--out requires a value}"; shift 2 ;;
         --no-build) NO_BUILD=1; shift ;;
@@ -67,6 +82,26 @@ if [[ ! "$RUNS" =~ ^[0-9]+$ ]] || [[ "$RUNS" -lt 1 ]]; then
 fi
 if [[ ! "$CHUNK_MS" =~ ^[0-9]+$ ]] || [[ "$CHUNK_MS" -lt 10 ]]; then
     echo "Invalid --chunk-ms: $CHUNK_MS" >&2
+    exit 1
+fi
+if ! awk -v v="$AUTO_THRESHOLD" 'BEGIN { exit !(v + 0 == v && v >= 0 && v <= 1) }'; then
+    echo "Invalid --auto-threshold: $AUTO_THRESHOLD (expected 0..1)" >&2
+    exit 1
+fi
+if ! awk -v v="$ONLINE_THRESHOLD" 'BEGIN { exit !(v + 0 == v && v >= 0 && v <= 1) }'; then
+    echo "Invalid --online-threshold: $ONLINE_THRESHOLD (expected 0..1)" >&2
+    exit 1
+fi
+if [[ ! "$PRUNE_MIN_MS" =~ ^[0-9]+$ ]]; then
+    echo "Invalid --prune-min-ms: $PRUNE_MIN_MS (expected >= 0)" >&2
+    exit 1
+fi
+if ! awk -v v="$PRUNE_MIN_FRACTION" 'BEGIN { exit !(v + 0 == v && v >= 0 && v <= 1) }'; then
+    echo "Invalid --prune-min-fraction: $PRUNE_MIN_FRACTION (expected 0..1)" >&2
+    exit 1
+fi
+if ! awk -v v="$SPEAKER_CHANGE_THRESHOLD" 'BEGIN { exit !(v + 0 == v && v >= 0 && v <= 1) }'; then
+    echo "Invalid --speaker-change-threshold: $SPEAKER_CHANGE_THRESHOLD (expected 0..1)" >&2
     exit 1
 fi
 
@@ -149,6 +184,9 @@ to_host_path() {
 echo "Preparing device directory..."
 "$ADB" "${ADB_ARGS[@]}" shell run-as "$PACKAGE" mkdir -p "$REMOTE_DIR"
 "$ADB" "${ADB_ARGS[@]}" shell run-as "$PACKAGE" mkdir -p "$REMOTE_RESULTS"
+# Иначе при редком сбое instrumentation можно вытащить result.json предыдущего прогона.
+"$ADB" "${ADB_ARGS[@]}" shell run-as "$PACKAGE" rm -f "$REMOTE_JSON"
+"$ADB" "${ADB_ARGS[@]}" shell run-as "$PACKAGE" rm -f "$REMOTE_TXT"
 
 echo "Pushing $WAV ..."
 "$ADB" "${ADB_ARGS[@]}" push "$(to_host_path "$WAV")" "$REMOTE_STAGING"
@@ -174,6 +212,11 @@ INSTRUMENT_OUTPUT="$(
         -e threads "$THREADS" \
         -e runs "$RUNS" \
         -e chunk_ms "$CHUNK_MS" \
+        -e auto_threshold "$AUTO_THRESHOLD" \
+        -e online_threshold "$ONLINE_THRESHOLD" \
+        -e prune_min_ms "$PRUNE_MIN_MS" \
+        -e prune_min_fraction "$PRUNE_MIN_FRACTION" \
+        -e speaker_change_threshold "$SPEAKER_CHANGE_THRESHOLD" \
         -e out "$REMOTE_JSON" \
         com.example.speech.test/androidx.test.runner.AndroidJUnitRunner 2>&1
 )"
