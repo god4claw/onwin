@@ -178,7 +178,7 @@ should compare embedding models / clustering objectives, not tune VAD.
 Full batch:
 
 ```powershell
-.\speech\scripts\benchmark.ps1 -Wav .\eval-data\pears22\pears22_full.wav `
+.\speech\scripts\benchmark.ps1 -Wav .\speech\eval\pears22\pears22_full.wav `
     -Mode batch -Runs 1 -Threads 4 -Speakers auto `
     -AutoThreshold 0.80 -OnlineThreshold 0.45 `
     -PruneMinMs 3000 -PruneMinFraction 0.05 `
@@ -188,7 +188,7 @@ Full batch:
 Full streaming:
 
 ```powershell
-.\speech\scripts\benchmark.ps1 -Wav .\eval-data\pears22\pears22_full.wav `
+.\speech\scripts\benchmark.ps1 -Wav .\speech\eval\pears22\pears22_full.wav `
     -Mode streaming -Runs 1 -Threads 4 -Speakers auto `
     -AutoThreshold 0.80 -OnlineThreshold 0.45 `
     -PruneMinMs 3000 -PruneMinFraction 0.05 `
@@ -199,8 +199,8 @@ Full streaming:
 Score:
 
 ```powershell
-python .\eval-data\score_der.py `
-    --ref .\eval-data\pears22\refs\pears22_full.rttm `
+python .\speech\eval\score_der.py `
+    --ref .\speech\eval\pears22\refs\pears22_full.rttm `
     --pred .\bench-results\pears-opt\<run>.json `
     --mode streaming --run 1 --collar 0.25
 ```

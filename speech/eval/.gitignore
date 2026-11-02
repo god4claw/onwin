@@ -7,3 +7,5 @@
 *.log
 *.parts/
 *.pieces
+__pycache__/
+*.pyc

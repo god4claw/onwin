@@ -37,7 +37,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\speech\scripts\benchmark.p
 
 # subsequent runs (APK already installed)
 powershell -NoProfile -ExecutionPolicy Bypass -File .\speech\scripts\benchmark.ps1 `
-  -Wav .\eval-data\synthetic\extracted\synthetic_00000.wav `
+  -Wav .\speech\eval\synthetic\extracted\synthetic_00000.wav `
   -Mode both -Runs 1 -Threads 4 -Speakers auto `
   -AutoThreshold 0.65 -OnlineThreshold 0.55 -NoBuild
 ```
@@ -48,12 +48,12 @@ The script uses the first connected adb device. Results are written to
 ## Host-side summary
 
 ```powershell
-python .\eval-data\summarize_bench.py `
-  .\bench-results\synthetic-run .\eval-data\synthetic\extracted
-python .\eval-data\summarize_sweep.py `
-  .\bench-results\sweep .\eval-data\synthetic\extracted
-python .\eval-data\score_der.py `
-  --ref .\eval-data\pears22\refs\pears22_full.rttm `
+python .\speech\eval\summarize_bench.py `
+  .\bench-results\synthetic-run .\speech\eval\synthetic\extracted
+python .\speech\eval\summarize_sweep.py `
+  .\bench-results\sweep .\speech\eval\synthetic\extracted
+python .\speech\eval\score_der.py `
+  --ref .\speech\eval\pears22\refs\pears22_full.rttm `
   --pred .\bench-results\pears-full\pears22_full-....json `
   --mode batch --collar 0.25
 ```
@@ -72,7 +72,7 @@ DER, not pure diarization DER.
   `prune_min_fraction` and `speaker_change_threshold` are exposed by both
   benchmark scripts.
 - Full Pear session 22 is assembled locally at
-  `eval-data/pears22/pears22_full.wav` (1107.84 s, gitignored).
+  `speech/eval/pears22/pears22_full.wav` (1107.84 s, gitignored).
 - All numbers are single-run smoke measurements unless a run directory says `runs=3`.
 - `score_der.py` scores the emitted speaker-attributed segments. Segments with
   empty ASR text are dropped before the benchmark sees them, so this DER is
