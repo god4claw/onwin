@@ -29,7 +29,6 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToLong
@@ -65,20 +64,27 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
         onEvict = { diarizer -> runCatching { diarizer.release() } },
     )
 
-    private val releaseGate = ReleaseGate { releaseLocked() }
+    private val releaseGate = ReleaseGate(
+        releaseModels = { releaseLocked() },
+        tryAcquire = { mutex.tryLock() },
+        unlock = { mutex.unlock() },
+    )
 
     override suspend fun load(config: SpeechConfig) = withContext(Dispatchers.IO) {
-        mutex.withLock {
+        mutex.lock()
+        var loadSucceeded = false
+        try {
             if (loadedConfig?.batchModelsMatch(config) == true &&
                 recognizer != null &&
                 diarizers.size > 0
             ) {
                 // Модели те же: достаточно запомнить конфиг, чтобы новые
                 // runtime-параметры (pruning и т. п.) применялись без
-                // холодной перезагрузки весов.
+                // холодной перезагрузки весов. При успехе endLoad() отменит
+                // отложенный release() — новая загрузка важнее старого запроса.
                 loadedConfig = config
-                releaseGate.cancel()
-                return@withLock
+                loadSucceeded = true
+                return@withContext
             }
 
             val appContext = context.applicationContext
@@ -114,7 +120,9 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
             loadedConfig = config
             segmentationPath = BundledModels.SEGMENTATION
             embeddingPath = embeddingAsset
-            releaseGate.cancel()
+            loadSucceeded = true
+        } finally {
+            releaseGate.endLoad(cancelPending = loadSucceeded)
         }
     }
 
@@ -132,14 +140,15 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
                 return@channelFlow
             }
 
-            mutex.withLock {
-                try {
-                    transcribeLocked(this, wav, expectedSpeakers)
-                } finally {
-                    // release(), пришедший во время расшифровки, выполняется
-                    // здесь — после последнего native-вызова, а не под ним.
-                    runCatching { releaseGate.releaseIfRequested() }
-                }
+            mutex.lock()
+            try {
+                transcribeLocked(this, wav, expectedSpeakers)
+            } finally {
+                // release(), пришедший во время расшифровки, выполняется
+                // здесь — после последнего native-вызова, а не под ним.
+                // endSession() отпускает mutex под тем же handoff-локом,
+                // поэтому запрос не может потеряться между проверкой и unlock().
+                releaseGate.endSession()
             }
         }.flowOn(Dispatchers.IO)
 
@@ -347,16 +356,9 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
     }
 
     override fun release() {
-        if (mutex.tryLock()) {
-            try {
-                releaseLocked()
-            } finally {
-                mutex.unlock()
-            }
-        } else {
-            // Идёт расшифровка: освобождение откладывается до её конца.
-            releaseGate.request()
-        }
+        // Если идёт расшифровка, запрос откладывается до её конца. Логика
+        // «запрос + tryLock + handoff» живёт в ReleaseGate.
+        releaseGate.release()
     }
 
     private fun releaseLocked() {
@@ -366,7 +368,6 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
         loadedConfig = null
         segmentationPath = null
         embeddingPath = null
-        releaseGate.cancel()
     }
 
     private companion object {

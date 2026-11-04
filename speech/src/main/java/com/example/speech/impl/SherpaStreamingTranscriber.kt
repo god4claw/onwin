@@ -26,7 +26,6 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -57,12 +56,20 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
     @Volatile private var embeddingExtractor: SpeakerEmbeddingExtractor? = null
     @Volatile private var loadedConfig: SpeechConfig? = null
 
-    private val releaseGate = ReleaseGate { releaseLocked() }
+    private val releaseGate = ReleaseGate(
+        releaseModels = { releaseLocked() },
+        tryAcquire = { sessionMutex.tryLock() },
+        unlock = { sessionMutex.unlock() },
+    )
 
     override suspend fun load(config: SpeechConfig) = withContext(Dispatchers.IO) {
         // Один mutex и на загрузку, и на сессию: иначе load() мог бы выгрузить
         // модели под работающим стримом. Пока стрим идёт, load() честно ждёт.
-        sessionMutex.withLock {
+        // endLoad() отпускает mutex под handoff-локом и при успешной загрузке
+        // отменяет отложенный release(): новая загрузка важнее старого release().
+        sessionMutex.lock()
+        var loadSucceeded = false
+        try {
             if (loadedConfig?.streamingModelsMatch(config) == true &&
                 recognizer != null &&
                 vad != null &&
@@ -71,8 +78,8 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                 // Модели те же: обновляем конфиг, чтобы новые runtime-параметры
                 // применились без перезагрузки 350 МБ весов.
                 loadedConfig = config
-                releaseGate.cancel()
-                return@withLock
+                loadSucceeded = true
+                return@withContext
             }
 
             val appContext = context.applicationContext
@@ -121,7 +128,9 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             vad = newVad
             embeddingExtractor = newEmbedder
             loadedConfig = config
-            releaseGate.cancel()
+            loadSucceeded = true
+        } finally {
+            releaseGate.endLoad(cancelPending = loadSucceeded)
         }
     }
 
@@ -248,24 +257,17 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             }
         } finally {
             // release(), пришедший во время стрима, выполняется здесь — между
-            // операциями, а не под работающим native-вызовом.
-            runCatching { releaseGate.releaseIfRequested() }
-            sessionMutex.unlock()
+            // операциями, а не под работающим native-вызовом. endSession()
+            // отпускает mutex под тем же handoff-локом, поэтому запрос не
+            // может потеряться между проверкой и unlock().
+            releaseGate.endSession()
         }
     }.flowOn(Dispatchers.Default)
 
     override fun release() {
-        if (!sessionMutex.tryLock()) {
-            // Стрим идёт: освобождать native-объекты нельзя. Запоминаем запрос,
-            // стрим выполнит его в своём finally.
-            releaseGate.request()
-            return
-        }
-        try {
-            releaseLocked()
-        } finally {
-            sessionMutex.unlock()
-        }
+        // Если идёт стрим, запрос откладывается до его конца. Логика
+        // «запрос + tryLock + handoff» живёт в ReleaseGate.
+        releaseGate.release()
     }
 
     /**
@@ -317,7 +319,6 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
         vad = null
         recognizer = null
         loadedConfig = null
-        releaseGate.cancel()
     }
 
     private companion object {
