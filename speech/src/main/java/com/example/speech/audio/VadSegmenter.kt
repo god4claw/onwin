@@ -31,11 +31,18 @@ internal interface VadEngine {
     )
 }
 
+/**
+ * Режет входной поток на окна фиксированного размера и отдаёт движку VAD.
+ *
+ * Размер окна — [WINDOW_SIZE], и он же зашит в `SherpaVadEngine`
+ * (`SileroVadModelConfig.windowSize`). Параметра конструктора здесь нет
+ * намеренно: Silero всё равно конфигурируется одним числом, и «своё» окно
+ * у сегментатора молча ломало бы VAD.
+ */
 internal class VadSegmenter(
     private val engine: VadEngine,
-    private val windowSize: Int = WINDOW_SIZE,
 ) {
-    private val window = FloatArray(windowSize)
+    private val window = FloatArray(WINDOW_SIZE)
     private var windowFill = 0
     private var speechActive = false
 
@@ -44,6 +51,13 @@ internal class VadSegmenter(
 
     var receivedSamples: Long = 0L
         private set
+
+    /**
+     * Детектор считает, что прямо сейчас идёт речь. Нужно настоящему
+     * стримингу: пока речь не началась, аудио в ASR не отдаётся, чтобы не
+     * тратить декодирование на тишину.
+     */
+    val isSpeechActive: Boolean get() = speechActive
 
     fun accept(samples: FloatArray): VadUpdate {
         if (samples.isEmpty()) return VadUpdate(null, emptyList())
@@ -54,12 +68,12 @@ internal class VadSegmenter(
         var offset = 0
 
         while (offset < samples.size) {
-            val copy = minOf(windowSize - windowFill, samples.size - offset)
+            val copy = minOf(WINDOW_SIZE - windowFill, samples.size - offset)
             samples.copyInto(window, windowFill, offset, offset + copy)
             windowFill += copy
             offset += copy
 
-            if (windowFill == windowSize) {
+            if (windowFill == WINDOW_SIZE) {
                 val started = feedWindow()
                 if (speechStartedAtSample == null) speechStartedAtSample = started
                 drainInto(chunks)
@@ -73,7 +87,7 @@ internal class VadSegmenter(
         val chunks = ArrayList<SpeechChunk>()
 
         if (windowFill > 0) {
-            window.fill(0f, windowFill, windowSize)
+            window.fill(0f, windowFill, WINDOW_SIZE)
             feedWindow()
             drainInto(chunks)
         }
@@ -96,10 +110,10 @@ internal class VadSegmenter(
     private fun feedWindow(): Long? {
         engine.accept(window)
         windowFill = 0
-        processedSamples += windowSize
+        processedSamples += WINDOW_SIZE
 
         val detected = engine.isSpeechDetected()
-        val started = if (detected && !speechActive) processedSamples - windowSize else null
+        val started = if (detected && !speechActive) processedSamples - WINDOW_SIZE else null
         speechActive = detected
         return started
     }
