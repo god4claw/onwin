@@ -181,13 +181,14 @@ def main():
     parser.add_argument("--before", required=True)
     parser.add_argument("--after", required=True)
     parser.add_argument("--repeat", default=None, help="второй прогон AFTER для оценки дрейфа")
+    parser.add_argument("--title", default="Бенчмарк: BEFORE vs AFTER")
     parser.add_argument("--out", default="bench-compare.md")
     args = parser.parse_args()
 
     before = load_runs(args.before)
     after = load_runs(args.after)
 
-    lines = ["# Бенчмарк: BEFORE vs AFTER", ""]
+    lines = [f"# {args.title}", ""]
     devices = {}
     for group in (before, after):
         for entries in group.values():
