@@ -22,7 +22,7 @@
 - Диаризация проверена: `two_speaker_dialogue` (19,75 с, два голоса) — 2 спикера в batch и streaming, метки 0/1 по порядку. На 46,8-с фикстуре один TTS-голос, поэтому `spk=1` там — правильный ответ.
 - Streaming: Silero VAD (окно 512), SpeechStarted, реплика закрывается по 450 мс тишины или 25 с, ASR в отдельной корутине, очередь на 8 чанков.
 - Спикеры в streaming уже размечаются — CAM++ embedding + OnlineSpeakerClusterer по косинусу, спикер приходит в Utterance.
-- Веса в assets, INTERNET в манифесте нет, ModelDownloader — фасад без сети.
+- Веса в assets, INTERNET в манифесте нет, сетевой загрузки в модуле нет.
 - Тесты: JVM на VAD и кластеризацию, instrumented на bundled-модели, batch-диаризацию и стриминг; headless-бенчмарк.
 - Документация: speech/README.md, BENCHMARK.md.
 
@@ -52,4 +52,6 @@ Headless CLI: `speech/scripts/benchmark.ps1` и `speech/scripts/benchmark.sh`. �
 
 Ключевой прогон на x86_64-эмуляторе: `two_speaker_dialogue` (19,75 с, два голоса) — batch 4,8 с (RTF 0,24), streaming 2,3 с (RTF 0,12), PSS 475/443 МБ, **2 спикера** в обоих режимах. На 46,8-с фикстуре один TTS-голос (F0 172–195 Гц, попарные косинусы ≤ 0,47), поэтому `spk=1` там корректен.
 
-Снимки прогонов лежат локально в `bench-results/` и в git не входят.
+A/B-замеры рефакторинга v2 (112 прогонов, BEFORE/AFTER/AFTER/BEFORE): [`docs/bench-refactor-v2.md`](docs/bench-refactor-v2.md).
+
+Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.
