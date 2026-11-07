@@ -1,4 +1,4 @@
-﻿package com.example.llm
+package com.example.llm
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -37,7 +37,7 @@ class OnnxGenAiGeneratorDeviceTest {
             assertTrue("РџСѓСЃС‚РѕР№ РѕС‚РІРµС‚ РјРѕРґРµР»Рё", answer.isNotBlank())
             assertTrue(
                 "РћС‚РІРµС‚ Р±РµР· РєРёСЂРёР»Р»РёС†С‹ вЂ” РјРѕРґРµР»СЊ РЅРµ С‚Р°: $answer",
-                answer.any { it in 'Р°'..'СЏ' || it in 'Рђ'..'РЇ' },
+                answer.any { it in 'а'..'я' || it in 'А'..'Я' },
             )
         } finally {
             generator.release()
