@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * [ForegroundStarter] для [ProcessingService].
@@ -40,13 +41,16 @@ class ServiceForegroundStarter(private val context: Context) : ForegroundStarter
     }
 
     @Synchronized
-    override fun startMicrophone(sessionId: String) {
+    override fun startMicrophone(sessionId: String) = startMicrophone(sessionId, processing = false)
+
+    @Synchronized
+    override fun startMicrophone(sessionId: String, processing: Boolean) {
         val existing = _request.value.takeIf { _keepForeground.value }
         launch(
             sessionId,
             ForegroundRequest(
                 microphone = true,
-                processing = existing?.processing == true,
+                processing = processing || existing?.processing == true,
                 processingReady = existing?.processingReady ?: CompletableDeferred(),
             ),
         )
@@ -65,14 +69,14 @@ class ServiceForegroundStarter(private val context: Context) : ForegroundStarter
     override suspend fun awaitMicrophone() {
         val request = checkNotNull(_request.value)
         check(request.microphone)
-        if (withTimeoutOrNull(10_000) { request.microphoneReady.await(); true } != true)
+        if (withTimeoutOrNull(10_000.milliseconds) { request.microphoneReady.await(); true } != true)
             throw ForegroundStartException(IllegalStateException("Microphone foreground promotion timed out"))
     }
 
     override suspend fun awaitProcessing() {
         val request = checkNotNull(_request.value)
         check(request.processing)
-        if (withTimeoutOrNull(10_000) { request.processingReady.await(); true } != true)
+        if (withTimeoutOrNull(10_000.milliseconds) { request.processingReady.await(); true } != true)
             throw ForegroundStartException(IllegalStateException("Processing foreground promotion timed out"))
     }
 
@@ -109,6 +113,6 @@ internal class ForegroundRequest(
 
     fun refused(error: ForegroundStartException) {
         if (microphone) microphoneReady.completeExceptionally(error)
-        else processingReady.completeExceptionally(error)
+        if (processing) processingReady.completeExceptionally(error)
     }
 }

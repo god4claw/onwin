@@ -178,7 +178,7 @@ class TranscriptExportTest {
 
     private object IdleController : ProcessingController {
         override val state = MutableStateFlow(ProcessingState())
-        override fun startRecording(): String? = null
+        override fun startRecording(liveTranscription: Boolean): String? = null
         override suspend fun importAudio(source: String): ImportSubmission = error("Unexpected import")
         override fun stopRecording(sessionId: String) = Unit
         override fun enqueueImport(source: String): String = error("Unexpected import")

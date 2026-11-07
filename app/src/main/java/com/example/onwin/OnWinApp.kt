@@ -1,18 +1,14 @@
 package com.example.onwin
 
 import android.app.Application
+import com.example.onwin.domain.processing.ProcessingController
 import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 
-/** Приложение: владеет [AppContainer]. */
 @HiltAndroidApp
 class OnWinApp : Application() {
 
-    /** Зависимости приложения; доступны после `onCreate`. */
-    lateinit var container: AppContainer
-        private set
-
-    override fun onCreate() {
-        super.onCreate()
-        container = AppContainer(this)
-    }
+    /** Создаём контроллер при старте приложения, чтобы он сразу восстановил незавершённые сессии. */
+    @Inject
+    internal lateinit var processingController: ProcessingController
 }

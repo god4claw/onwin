@@ -12,9 +12,10 @@ import java.io.DataInputStream
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
- * Демо-реализация [Transcriber] без моделей: приложению и тестам нужны правдоподобные сегменты,
+ * Тестовая реализация [Transcriber] без моделей: тестам нужны воспроизводимые сегменты,
  * а настоящая расшифровка живёт в модуле `:speech` (`SherpaVadTranscriber`).
  *
  * Порядок событий — как в контракте: загрузка с задержкой (повторная с тем же конфигом — сразу),
@@ -44,7 +45,7 @@ class FakeTranscriber(
 
     override suspend fun load(config: SpeechConfig) {
         if (loadedConfig == config) return
-        delay(loadDelayMs)
+        delay(loadDelayMs.milliseconds)
         loadedConfig = config
     }
 
@@ -62,7 +63,7 @@ class FakeTranscriber(
                 return@flow
             }
             for (step in 1..DIARIZATION_STEPS) {
-                delay(diarizationMs / DIARIZATION_STEPS)
+                delay((diarizationMs / DIARIZATION_STEPS).milliseconds)
                 emit(TranscriptionEvent.Progress(Stage.DIARIZATION, step.toFloat() / DIARIZATION_STEPS))
             }
             val segments = planSegments(durationMs)
@@ -72,7 +73,7 @@ class FakeTranscriber(
                     emit(TranscriptionEvent.Failed(IllegalStateException("Fake failure after $index segments")))
                     return@flow
                 }
-                delay(((segment.endMs - segment.startMs) * realtimeFactor).toLong())
+                delay(((segment.endMs - segment.startMs) * realtimeFactor).toLong().milliseconds)
                 emit(TranscriptionEvent.SegmentReady(segment))
                 emit(TranscriptionEvent.Progress(Stage.RECOGNITION, (index + 1f) / segments.size))
             }

@@ -64,6 +64,10 @@ android {
     buildFeatures {
         compose = true
     }
+    sourceSets {
+        named("test") { kotlin.directories += "src/sharedTest/kotlin" }
+        named("androidTest") { kotlin.directories += "src/sharedTest/kotlin" }
+    }
 }
 
 baselineProfile {

@@ -17,8 +17,8 @@
 ## 1. Клонирование
 
 ```bash
-git clone https://github.com/god4claw/onwin.git
-cd onwin
+git clone https://github.com/god4claw/private-onwin.git
+cd private-onwin
 ```
 
 ## 2. Веса
@@ -36,7 +36,7 @@ cd onwin
 1. Откройте страницу релиза под своей учётной записью:
    **Releases → `speech-models-v1` → Assets → `speech-models-v1.zip`**
    (прямая ссылка для браузера:
-   `https://github.com/god4claw/onwin/releases/tag/speech-models-v1`).
+   `https://github.com/god4claw/private-onwin/releases/tag/speech-models-v1`).
 2. Скачайте `speech-models-v1.zip` (334 МиБ) и положите его в корень репозитория.
 3. Распакуйте и проверьте:
 
@@ -102,13 +102,58 @@ Debug-APK:
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Release-APK (arm64, уже с весами) лежит в Releases:
+### Профили запуска
+
+На arm64-устройстве с Android 13+ и чистой установкой тестового пакета:
 
 ```powershell
-adb install -r onwin-v0.1.0-arm64.apk
+.\gradlew.bat :app:generateReleaseBaselineProfile
+.\gradlew.bat :baselineprofile:connectedBenchmarkReleaseAndroidTest
 ```
 
-Для сборки release нужен `app/build.gradle.kts` с `noCompress += listOf("onnx", "txt")` — иначе sherpa-onnx не сможет читать веса из APK.
+Для генерации на x86_64-эмуляторе с Android 13+ используйте
+`.\gradlew.bat :app:generateReleaseBaselineProfile -PonwinProfileX86=true`.
+Эта опция меняет ABI только у варианта для генерации, а APK для замеров
+и распространения остаются arm64. Если подключено несколько устройств,
+задайте `ANDROID_SERIAL` перед запуском.
+
+Генератор использует отдельный пакет `com.example.onwin.profile`.
+На первом запуске ему нужен экран приветствия. Для сценария импорта на
+устройстве нужен системный выбор файлов с папкой «Загрузки» или Downloads.
+Оставьте устройство разблокированным. Генератор сам создаёт короткий тестовый
+WAV. Сохраните оба текстовых профиля из `app/src/release/generated/baselineProfiles/`
+в Git. Для обновления профилей повторите генерацию после изменений сценариев.
+
+Для замеров используйте физический телефон и сравните медиану холодного запуска
+для двух режимов компиляции в JSON-отчёте Macrobenchmark. Отчёт и трассы лежат в
+`baselineprofile/build/outputs/`. Обычная release-сборка использует уже
+сохранённые профили и не требует подключённого телефона.
+
+### Сборка и подпись release APK
+
+`release` оптимизируется R8 и собирается без подписи. Перед сборкой проверьте веса
+командой `:speech:verifyBundledModels`. Для распространения подпишите APK ключом релиза,
+который хранится вне репозитория. Пароли вводите по запросу `apksigner`.
+
+```powershell
+.\gradlew.bat :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest :app:analyzeReleaseR8Config
+
+# apksigner и zipalign из Android SDK Build Tools должны быть доступны в PATH.
+$apk = 'app\build\outputs\apk\release\app-release-unsigned.apk'
+$signedApk = 'app\build\outputs\apk\release\private-onwin-arm64.apk'
+zipalign -c -P 16 4 $apk
+apksigner sign --ks $env:ONWIN_RELEASE_KEYSTORE --ks-key-alias $env:ONWIN_RELEASE_KEY_ALIAS --out $signedApk $apk
+apksigner verify --verbose --print-certs $signedApk
+adb install -r $signedApk
+```
+
+Перед распространением проверьте `assets/dexopt/baseline.prof` и
+`lib/arm64-v8a/` в APK. Если предыдущий APK уже распространялся, сверьте
+SHA-256 сертификата подписи и проверьте установку поверх предыдущей версии
+на тестовом телефоне без удаления её данных. Проверьте импорт, микрофон,
+завершение расшифровки, воспроизведение и сохранение JSON. Вместе с APK
+сохраните `app/build/outputs/mapping/release/mapping.txt` и отчёты замеров.
+Для Sherpa файлы `onnx` и `txt` упаковываются без сжатия.
 
 ## API `:speech`
 

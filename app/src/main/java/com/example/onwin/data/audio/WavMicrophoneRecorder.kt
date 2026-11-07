@@ -3,9 +3,6 @@ package com.example.onwin.data.audio
 import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.domain.processing.MicrophoneRecorder
 import com.example.onwin.domain.processing.RecordingException
-import java.io.Closeable
-import java.io.File
-import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Deferred
@@ -14,6 +11,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import java.io.Closeable
+import java.io.File
+import java.io.IOException
+import kotlin.time.Duration.Companion.milliseconds
 
 /** Nonblocking PCM16 input. All methods are called on the capture coroutine, including close. */
 internal interface PcmCapture : Closeable {
@@ -37,6 +38,7 @@ internal class WavMicrophoneRecorder(
         stop: Deferred<Unit>,
         onStarted: () -> Unit,
         onDuration: (Long) -> Unit,
+        live: Boolean,
     ): Long = withContext(dispatcher) {
         var completed = false
         try {
@@ -53,18 +55,23 @@ internal class WavMicrophoneRecorder(
                     input.start()
                     onStarted()
                     var lastReported = -1L
+                    var flushedBytes = 0L
                     while (!stop.isCompleted) {
                         currentCoroutineContext().ensureActive()
                         if (input.silenced) throw RecordingException(ErrorCode.MICROPHONE_UNAVAILABLE)
                         val count = input.read(samples)
                         if (count < 0) throw RecordingException(ErrorCode.MICROPHONE_UNAVAILABLE)
                         if (count == 0) {
-                            delay(10)
+                            delay(10.milliseconds)
                             continue
                         }
                         if (resampler == null) writer.writeShorts(samples, length = count) else {
                             repeat(count) { floats[it] = samples[it] / 32768f }
                             resampler.process(floats, 0, count, sink)
+                        }
+                        if (live && writer.dataBytes - flushedBytes >= LIVE_FLUSH_BYTES) {
+                            writer.flushBuffer()
+                            flushedBytes = writer.dataBytes
                         }
                         if (writer.durationMs / 1000 != lastReported) {
                             lastReported = writer.durationMs / 1000
@@ -95,6 +102,10 @@ internal class WavMicrophoneRecorder(
             // A successful result remains a .part until the controller commits it.
             if (!completed) partFile.delete()
         }
+    }
+
+    private companion object {
+        const val LIVE_FLUSH_BYTES = 3_200 // 100 ms of mono PCM16 at 16 kHz.
     }
 }
 

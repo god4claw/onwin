@@ -157,7 +157,7 @@ internal fun ActiveRecordingScreen(
                     ) {
                         RecordingSummary(detail, elapsedMs, compact)
                         Spacer(Modifier.height(14.dp))
-                        DemoTranscript(
+                        RecordingTranscript(
                             modifier = Modifier.weight(1f, fill = false),
                             detail = detail,
                             compact = compact,
@@ -261,7 +261,7 @@ private fun RecordingSummary(detail: SessionDetail, elapsedMs: Long, compact: Bo
 }
 
 @Composable
-private fun DemoTranscript(
+private fun RecordingTranscript(
     modifier: Modifier = Modifier,
     detail: SessionDetail,
     compact: Boolean,
@@ -313,14 +313,6 @@ private fun DemoTranscript(
             .heightIn(max = if (compact) 184.dp else 208.dp)
             .recordingSurface(),
     ) {
-        if (detail.segments.isNotEmpty()) {
-            Text(
-                text = stringResource(R.string.recording_demo),
-                modifier = Modifier.padding(start = 16.dp, top = 12.dp),
-                color = RecordingNoteColor,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxWidth().weight(1f)
@@ -344,6 +336,7 @@ private fun DemoTranscript(
                                 .background(RecordingSpeakerBackground, CircleShape)
                                 .border(1.dp, RecordingSpeakerOutline, CircleShape)
                                 .clickable(
+                                    enabled = detail.session.status == SessionStatus.DONE,
                                     role = Role.Button,
                                     onClickLabel = stringResource(R.string.speaker_rename_title),
                                 ) { onRenameSpeaker(segment.speaker) }

@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
  */
 interface ProcessingController {
 
-    /** Starts from a visible user action; null when capture is already active or unavailable. */
-    fun startRecording(): String?
+    /** Starts from a visible user action. [liveTranscription] is fixed for this recording. */
+    fun startRecording(liveTranscription: Boolean = true): String?
 
     /** Finalize capture and transcribe; stale/repeated commands are ignored. */
     fun stopRecording(sessionId: String)

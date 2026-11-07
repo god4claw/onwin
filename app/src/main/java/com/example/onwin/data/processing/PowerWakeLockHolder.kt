@@ -11,7 +11,7 @@ import com.example.onwin.domain.processing.WakeLockHolder
 class PowerWakeLockHolder(context: Context) : WakeLockHolder {
 
     private val wakeLock = context.getSystemService(PowerManager::class.java)
-        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PrivateOnWin:processing")
+        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OnWin:processing")
         .apply { setReferenceCounted(false) }
 
     override fun acquire() {

@@ -69,7 +69,7 @@ class DefaultProcessingControllerTest {
     fun happyPath_persistsStatusesAndLiveSegments_andDoneReplacesThem() = runTest {
         val gate = CompletableDeferred<Unit>()
         transcriber.script = {
-            emit(TranscriptionEvent.Progress(Stage.DIARIZATION, 1f))
+            emit(TranscriptionEvent.Progress(Stage.RECOGNITION, 0.5f))
             emit(TranscriptionEvent.SegmentReady(DRAFT[0]))
             emit(TranscriptionEvent.SegmentReady(DRAFT[1]))
             gate.await()
@@ -83,7 +83,8 @@ class DefaultProcessingControllerTest {
         // Сегменты в БД по мере готовности, до Done.
         assertEquals(DRAFT, repository.segments(id))
         assertEquals(TRANSCRIBING, repository.session(id).status)
-        assertEquals(ProcessingStage.DIARIZATION, controller.state.value.running?.stage)
+        assertEquals(ProcessingStage.RECOGNITION, controller.state.value.running?.stage)
+        assertEquals(0.5f, controller.state.value.running?.fraction)
 
         gate.complete(Unit)
         advanceUntilIdle()

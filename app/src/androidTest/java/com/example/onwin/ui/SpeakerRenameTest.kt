@@ -44,7 +44,7 @@ class SpeakerRenameTest {
     val compose = createComposeRule()
 
     @Test
-    fun speakerChipsCanBeRenamedAndResetDuringTranscription() {
+    fun speakerChipsCanBeRenamedAndResetOnceLabelsAreFinal() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         try {
@@ -73,6 +73,10 @@ class SpeakerRenameTest {
             try {
                 compose.setContent { ActiveRecordingRoute(onBack = {}, viewModel = viewModel) }
                 val field = compose.onNodeWithContentDescription("Имя спикера")
+
+                awaitChips("Спикер 1")
+                compose.onAllNodesWithText("Спикер 1")[0].assertIsNotEnabled()
+                runBlocking { repository.updateStatus(session.id, SessionStatus.DONE) }
 
                 openSpeaker("Спикер 1")
                 compose.onNodeWithText("Переименовать спикера").assertIsDisplayed()
@@ -108,6 +112,10 @@ class SpeakerRenameTest {
 
     private fun openSpeaker(name: String) {
         awaitChips(name)
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithText(name)[0].fetchSemanticsNode().config
+                .contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled).not()
+        }
         compose.onAllNodesWithText(name)[0].performClick()
     }
 
@@ -125,7 +133,7 @@ class SpeakerRenameTest {
 
     private object IdleController : ProcessingController {
         override val state = MutableStateFlow(ProcessingState())
-        override fun startRecording(): String? = null
+        override fun startRecording(liveTranscription: Boolean): String? = null
         override fun stopRecording(sessionId: String) = Unit
         override fun enqueueImport(source: String): String = error("Unexpected import")
         override suspend fun importAudio(source: String): ImportSubmission = error("Unexpected import")

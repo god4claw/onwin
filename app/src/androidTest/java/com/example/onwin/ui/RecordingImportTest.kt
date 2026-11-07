@@ -57,7 +57,7 @@ class RecordingImportTest {
         val database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         val repository = RoomSessionRepository(database.sessionDao(), context.cacheDir, Clock.systemUTC())
         val controller = ImportController()
-        val viewModel = RecordingsViewModel(repository, controller)
+        val viewModel = RecordingsViewModel(repository, controller, androidx.lifecycle.SavedStateHandle())
         val picker = TestPicker(context)
         val opened = mutableStateOf<String?>(null)
         try {
@@ -152,7 +152,7 @@ class RecordingImportTest {
             return ImportSubmission(created.await(), openDetails)
         }
 
-        override fun startRecording(): String? = error("Unexpected microphone action")
+        override fun startRecording(liveTranscription: Boolean): String = error("Unexpected microphone action")
         override fun stopRecording(sessionId: String) = Unit
         override fun enqueueImport(source: String): String = error("Unexpected queued import")
         override fun cancel(sessionId: String) = Unit

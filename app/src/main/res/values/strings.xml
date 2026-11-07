@@ -57,6 +57,7 @@
     <string name="stage_loading_models">Загрузка моделей…</string>
     <string name="stage_diarization">Определение говорящих</string>
     <string name="stage_recognition">Распознавание речи</string>
+    <string name="recordings_live_transcription">Расшифровка во время записи</string>
     <string name="stage_step">Шаг %1$d из %2$d · %3$s</string>
     <string name="stage_step_percent">Шаг %1$d из %2$d · %3$s · %4$d%%</string>
     <string name="stage_waiting">Подготовка…</string>
@@ -93,7 +94,6 @@
     <string name="recording_start_failed">Не удалось начать запись.</string>
     <string name="active_recording_status">Запись…</string>
     <string name="recording_processing">Обработка…</string>
-    <string name="recording_demo">Демо</string>
     <string name="recording_save_json">Сохранить JSON</string>
     <string name="recording_json_saved">Расшифровка сохранена.</string>
     <string name="recording_json_save_failed">Не удалось сохранить JSON. Попробуйте ещё раз.</string>
