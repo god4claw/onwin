@@ -108,6 +108,11 @@ class RecordingsScreenTest {
             )
         }
 
+        val idleHeading = compose.onNodeWithText("Запишите аудио или\nимпортируйте его")
+        val activeHeading = compose.onNodeWithText("Остановите запись или\nимпортируйте аудио")
+        idleHeading.assertIsDisplayed()
+        activeHeading.assertDoesNotExist()
+
         val importButton = compose.onNodeWithText("Импортировать с устройства")
         importButton.performClick()
         compose.onNodeWithContentDescription("Подготовка файла…").assertIsDisplayed()
@@ -127,9 +132,21 @@ class RecordingsScreenTest {
                 ),
             )
         }
+        activeHeading.assertIsDisplayed()
+        idleHeading.assertDoesNotExist()
         importButton.assertIsEnabled()
         importButton.performClick()
         compose.onNodeWithContentDescription("Подготовка файла…").assertIsDisplayed()
+
+        for (phase in listOf(RecordingPhase.STARTING, RecordingPhase.STOPPING)) {
+            compose.runOnIdle {
+                state.value = RecordingsUiState(
+                    processing = ProcessingState(recording = RecordingState("mic", "Название", phase)),
+                )
+            }
+            idleHeading.assertIsDisplayed()
+            activeHeading.assertDoesNotExist()
+        }
     }
 
     @Test

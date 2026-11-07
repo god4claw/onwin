@@ -107,6 +107,11 @@ internal fun RecordingsScreen(
                     expanded = listExpanded,
                     compact = viewport.isCompact,
                     recordingId = recording?.sessionId,
+                    title = if (recording?.phase == RecordingPhase.RECORDING) {
+                        R.string.recordings_capture_active_title
+                    } else {
+                        R.string.recordings_capture_title
+                    },
                     loadingLabel = when {
                         state.startingRecording || recording?.phase == RecordingPhase.STARTING -> R.string.recording_starting
                         savingRecording -> R.string.recording_stopping
@@ -202,6 +207,7 @@ private fun capturePanel(
     expanded: Boolean,
     compact: Boolean,
     recordingId: String?,
+    title: Int,
     loadingLabel: Int?,
     importing: Boolean,
     canImport: Boolean,
@@ -213,9 +219,9 @@ private fun capturePanel(
     topPadding = if (expanded) 12.dp else if (compact) 24.dp else 29.dp,
     bottomPadding = if (compact) 22.dp else 26.dp,
     primaryBottomGap = 19.dp,
-    heading = if (expanded) null else panelElement(R.string.recordings_capture_title) {
+    heading = if (expanded) null else panelElement(title) {
         Text(
-            text = stringResource(R.string.recordings_capture_title),
+            text = stringResource(title),
             modifier = Modifier
                 .padding(bottom = if (compact) 22.dp else 28.dp)
                 .semantics { heading() },
