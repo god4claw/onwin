@@ -13,3 +13,8 @@
 -keepclasseswithmembernames,includedescriptorclasses class * {
     native <methods>;
 }
+
+# diarizationCallback отдельным правилом не покрывается: native получает
+# kotlin.jvm.functions.Function3 и вызывает invoke(), а сам метод помечен
+# @Keep (AGP сохраняет аннотированные члены). Сигнатура в старом правиле
+# (void) не совпадала с реальной (int), поэтому правило было мёртвым.
