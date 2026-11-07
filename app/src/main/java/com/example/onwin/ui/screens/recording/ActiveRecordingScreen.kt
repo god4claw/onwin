@@ -1,13 +1,19 @@
 package com.example.onwin.ui.screens.recording
 
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -26,16 +32,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -43,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.structuralEqualityPolicy
@@ -50,8 +60,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
@@ -65,7 +77,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import com.example.onwin.R
 import com.example.onwin.domain.model.TranscriptSegment
 import com.example.onwin.domain.model.Session
@@ -80,6 +94,8 @@ import com.example.onwin.ui.navigation.NavigationPanelContent
 import com.example.onwin.ui.navigation.panelElement
 import com.example.onwin.ui.navigation.NavigationPanelSlot
 import com.example.onwin.ui.navigation.OnWinScreenLayout
+import com.example.onwin.ui.navigation.ScreenControls
+import com.example.onwin.ui.navigation.ScreenControlsMotionMillis
 import com.example.onwin.ui.navigation.isCompact
 import com.example.onwin.ui.formatClock
 import com.example.onwin.ui.labelRes
@@ -101,6 +117,7 @@ import com.example.onwin.ui.theme.TranscriptHighlightLabel
 import com.example.onwin.ui.theme.TranscriptHighlightText
 import com.example.onwin.ui.theme.recordingCardBackground
 import com.example.onwin.ui.theme.transcriptHighlight
+import kotlin.math.roundToInt
 
 @Composable
 internal fun ActiveRecordingScreen(
@@ -131,8 +148,19 @@ internal fun ActiveRecordingScreen(
 ) {
     val status = detail?.session?.status
     val lastSegment = detail?.segments?.lastOrNull()
+    var expandTranscript by rememberSaveable { mutableStateOf(false) }
+    val expanded = expandTranscript && lastSegment != null
+    val expansion = animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(ScreenControlsMotionMillis),
+        label = "transcript expansion",
+    )
+    val expansionSettled by remember(expansion) { derivedStateOf { expansion.value == 0f } }
+    BackHandler(enabled = expanded) { expandTranscript = false }
+    if (expanded) ExpandedTranscriptStatusBar()
+
     val step = onboardingStep?.takeIf {
-        it != TranscriptOnboardingStep.COMPLETE && loaded && !panelDimmed &&
+        it != TranscriptOnboardingStep.COMPLETE && loaded && !panelDimmed && !expanded && expansionSettled &&
             status == SessionStatus.DONE && playback.ready && lastSegment != null
     }
     val target = remember(detail?.session?.id, lastSegment?.index, step) {
@@ -180,24 +208,34 @@ internal fun ActiveRecordingScreen(
 
     OnWinScreenLayout(
         modifier, panelSlot, loading = !loaded, dimmed = panelDimmed, panel = panel, overlay = overlay,
+        bottomPanelVisible = !expanded,
     ) { viewport ->
         val compact = viewport.isCompact
-        val topInset = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
-        Column(Modifier.fillMaxSize()) {
+        val systemPadding = WindowInsets.safeDrawing.asPaddingValues()
+        val topInset = systemPadding.calculateTopPadding()
+        val blue = MaterialTheme.colorScheme.background
+        val progress = expansion.value
+        Column(Modifier.fillMaxSize().drawBehind {
+            val progress = expansion.value
+            if (progress > 0f) drawRect(blue, alpha = progress)
+        }) {
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
             ) {
-                GlassButton(
-                    text = stringResource(R.string.action_back),
-                    onClick = onBack,
-                    modifier = Modifier.padding(start = 28.dp, top = maxOf(topInset, if (compact) 16.dp else 20.dp))
-                        .widthIn(min = 94.dp).heightIn(min = 42.dp),
-                    textStyle = MaterialTheme.typography.labelLarge,
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 9.dp),
-                )
+                ScreenControls(visible = !expanded) {
+                    GlassButton(
+                        text = stringResource(R.string.action_back),
+                        onClick = onBack,
+                        enabled = !expanded,
+                        modifier = Modifier.padding(start = 28.dp, top = maxOf(topInset, if (compact) 16.dp else 20.dp))
+                            .widthIn(min = 94.dp).heightIn(min = 42.dp),
+                        textStyle = MaterialTheme.typography.labelLarge,
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 9.dp),
+                    )
+                }
                 when {
                     !loaded -> CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).padding(24.dp))
                     detail == null -> Text(
@@ -206,14 +244,31 @@ internal fun ActiveRecordingScreen(
                         color = MaterialTheme.colorScheme.onBackground,
                     )
                     else -> Column(
-                        modifier = Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp, top = 12.dp),
+                        modifier = Modifier.fillMaxSize().padding(
+                            start = lerp(20.dp, 0.dp, progress),
+                            end = lerp(20.dp, 0.dp, progress),
+                            top = lerp(12.dp, topInset + 8.dp, progress),
+                            bottom = (systemPadding.calculateBottomPadding() + 8.dp) * progress,
+                        ),
                     ) {
-                        RecordingSummary(detail, elapsedMs, compact)
-                        Spacer(Modifier.height(14.dp))
+                        ScreenControls(visible = !expanded) {
+                            Column {
+                                RecordingSummary(detail, elapsedMs, compact)
+                                Spacer(Modifier.height(14.dp))
+                            }
+                        }
+                        val maxHeight = if (status == SessionStatus.DONE) Modifier else {
+                            val collapsedHeight = if (compact) 184.dp else 208.dp
+                            Modifier.heightIn(max = lerp(collapsedHeight, viewport.height, progress))
+                        }
                         RecordingTranscript(
-                            modifier = Modifier.weight(1f, fill = status == SessionStatus.DONE),
+                            modifier = Modifier.weight(1f, fill = status == SessionStatus.DONE).then(maxHeight),
                             detail = detail,
-                            compact = compact,
+                            expanded = expanded,
+                            expansion = expansion,
+                            onToggleExpanded = if (lastSegment != null) {
+                                { expandTranscript = !expanded }
+                            } else null,
                             canSeek = playback.ready,
                             playing = playback.ready && playback.playing && status == SessionStatus.DONE,
                             playbackPosition = playbackPosition,
@@ -223,32 +278,54 @@ internal fun ActiveRecordingScreen(
                             onboardingTarget = target,
                         )
                         detail.session.errorCode?.let { error ->
-                            Spacer(Modifier.height(14.dp))
-                            Text(
-                                text = stringResource(error.messageRes),
-                                color = MaterialTheme.colorScheme.onBackground,
-                            )
+                            ScreenControls(visible = !expanded, anchor = Alignment.Bottom) {
+                                Text(
+                                    text = stringResource(error.messageRes),
+                                    modifier = Modifier.padding(top = 14.dp),
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                )
+                            }
                         }
                     }
                 }
             }
-            if (status?.isActive == true) {
-                Text(
-                    text = stringResource(
-                        if (processing) R.string.processing_background_note else R.string.recording_background_note,
-                    ),
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                        .padding(start = 16.dp, top = if (compact) 18.dp else 22.dp, end = 16.dp, bottom = 15.dp),
-                    color = RecordingNoteColor,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                )
-                NotificationPermissionAction(Modifier.align(Alignment.CenterHorizontally))
-            } else if (status == SessionStatus.DONE) {
-                Spacer(Modifier.height(32.dp))
+            ScreenControls(
+                visible = !expanded,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                anchor = Alignment.Bottom,
+            ) {
+                if (status?.isActive == true) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = stringResource(
+                                if (processing) R.string.processing_background_note else R.string.recording_background_note,
+                            ),
+                            modifier = Modifier
+                                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                                .padding(start = 16.dp, top = if (compact) 18.dp else 22.dp, end = 16.dp, bottom = 15.dp),
+                            color = RecordingNoteColor,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                        NotificationPermissionAction(Modifier.align(Alignment.CenterHorizontally))
+                    }
+                } else if (status == SessionStatus.DONE) {
+                    Spacer(Modifier.height(32.dp))
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun ExpandedTranscriptStatusBar() {
+    val window = LocalActivity.current?.window ?: return
+    val view = LocalView.current
+    DisposableEffect(window, view) {
+        val insets = WindowCompat.getInsetsController(window, view)
+        val previousAppearance = insets.isAppearanceLightStatusBars
+        insets.isAppearanceLightStatusBars = false
+        onDispose { insets.isAppearanceLightStatusBars = previousAppearance }
     }
 }
 
@@ -315,7 +392,9 @@ private fun RecordingSummary(detail: SessionDetail, elapsedMs: Long, compact: Bo
 private fun RecordingTranscript(
     modifier: Modifier = Modifier,
     detail: SessionDetail,
-    compact: Boolean,
+    expanded: Boolean,
+    expansion: State<Float>,
+    onToggleExpanded: (() -> Unit)?,
     canSeek: Boolean,
     playing: Boolean,
     playbackPosition: State<Long>,
@@ -378,19 +457,28 @@ private fun RecordingTranscript(
 
     LaunchedEffect(segments.size) {
         if (segments.isEmpty()) return@LaunchedEffect
-        val lastIndex = segments.lastIndex
         if (!openedAtEnd) {
             openedAtEnd = true
-            listState.scrollToItem(lastIndex, TranscriptEndOffset)
+            if (onboardingTarget == null) listState.scrollToTranscriptEnd(segments.lastIndex, animate = false)
         } else if (followLast && !isDragged) {
-            listState.animateScrollToItem(lastIndex)
-            // Если последняя реплика выше блока, доводим прокрутку до конца её текста.
-            val layout = listState.layoutInfo
-            val last = layout.visibleItemsInfo.lastOrNull { it.index == lastIndex }
-            val overflow = last?.let {
-                it.offset + it.size - (layout.viewportEndOffset - layout.afterContentPadding)
-            } ?: 0
-            if (overflow > 0) listState.animateScrollBy(overflow.toFloat())
+            listState.scrollToTranscriptEnd(segments.lastIndex, animate = true)
+        }
+    }
+
+    LaunchedEffect(listState, playing, onboardingTarget) {
+        if (playing || onboardingTarget != null) return@LaunchedEffect
+        var previousHeight = 0
+        var pinnedToEnd = false
+        snapshotFlow {
+            listState.layoutInfo.viewportSize.height to (listState.canScrollBackward && !listState.canScrollForward)
+        }.collect { (height, atEnd) ->
+            // Keep the last reply visible if the controls reduce the viewport after layout.
+            if (height in 1 until previousHeight && pinnedToEnd && !atEnd && !listState.isScrollInProgress) {
+                val lastIndex = listState.layoutInfo.totalItemsCount - 1
+                if (lastIndex >= 0) listState.scrollToTranscriptEnd(lastIndex, animate = false)
+            }
+            previousHeight = listState.layoutInfo.viewportSize.height
+            pinnedToEnd = listState.canScrollBackward && !listState.canScrollForward
         }
     }
 
@@ -402,20 +490,21 @@ private fun RecordingTranscript(
         }
     }
 
-    val maxHeight = if (detail.session.status == SessionStatus.DONE) Modifier
-        else Modifier.heightIn(max = if (compact) 184.dp else 208.dp)
-    Column(
-        modifier = modifier.fillMaxWidth()
-            .then(maxHeight)
-            .recordingSurface(),
-    ) {
+    val listAlignment = remember(expansion) {
+        Alignment.Vertical { size, space -> ((space - size) * (1f - expansion.value)).roundToInt() }
+    }
+    TranscriptSurface(modifier.fillMaxWidth(), expansion) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxWidth().weight(1f)
+            modifier = Modifier.fillMaxSize()
+                .transcriptEdgeBlur(
+                    canScrollBackward = { listState.canScrollBackward },
+                    canScrollForward = { listState.canScrollForward },
+                )
                 .semantics { testTagsAsResourceId = true }
                 .testTag("transcript-list"),
-            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = if (compact) 16.dp else 20.dp),
-            verticalArrangement = Arrangement.spacedBy(13.dp, Alignment.Bottom),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(13.dp, listAlignment),
         ) {
             items(segments, key = { it.index }) { segment ->
                 val target = onboardingTarget?.takeIf { segment.index == segments.lastOrNull()?.index }
@@ -506,6 +595,32 @@ private fun RecordingTranscript(
                 }
             }
         }
+        if (onToggleExpanded != null) {
+            IconButton(
+                onClick = onToggleExpanded,
+                modifier = Modifier.align(Alignment.TopEnd).padding(end = 4.dp),
+            ) {
+                Icon(
+                    painter = painterResource(
+                        if (expanded) R.drawable.ic_transcript_minimize else R.drawable.ic_transcript_maximize,
+                    ),
+                    contentDescription = stringResource(
+                        if (expanded) R.string.transcript_minimize else R.string.transcript_maximize,
+                    ),
+                    tint = RecordingDurationColor,
+                )
+            }
+        }
+    }
+}
+
+private suspend fun LazyListState.scrollToTranscriptEnd(lastIndex: Int, animate: Boolean) {
+    if (animate) animateScrollToItem(lastIndex) else scrollToItem(lastIndex)
+    val layout = layoutInfo
+    val last = layout.visibleItemsInfo.lastOrNull { it.index == lastIndex } ?: return
+    val overflow = last.offset + last.size - (layout.viewportEndOffset - layout.afterContentPadding)
+    if (overflow > 0) {
+        if (animate) animateScrollBy(overflow.toFloat()) else scrollBy(overflow.toFloat())
     }
 }
 
@@ -580,6 +695,25 @@ private fun Modifier.recordingSurface(): Modifier {
     return clip(shape).recordingCardBackground().border(1.dp, WinSurfaceOutline, shape)
 }
 
+@Composable
+private fun TranscriptSurface(
+    modifier: Modifier,
+    expansion: State<Float>,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val showCard by remember(expansion) { derivedStateOf { expansion.value < 1f } }
+    Box(modifier.testTag("transcript-panel").clip(RoundedCornerShape(22.dp * (1f - expansion.value)))) {
+        if (showCard) {
+            Box(
+                Modifier.matchParentSize()
+                    .graphicsLayer { alpha = 1f - expansion.value }
+                    .recordingSurface(),
+            )
+        }
+        content()
+    }
+}
+
 @Preview(name = "Активная запись", locale = "ru", showBackground = true, widthDp = 390, heightDp = 844)
 @Composable
 private fun ActiveRecordingScreenPreview() {
@@ -606,7 +740,6 @@ private const val PreviewSessionId = "preview-recording"
  * Смещение, заведомо большее высоты списка: прокрутка упирается в нижнюю границу, поэтому даже
  * у длинной последней реплики виден конец текста.
  */
-private const val TranscriptEndOffset = Int.MAX_VALUE
 
 private val previewRecordingDetail = SessionDetail(
     session = Session(

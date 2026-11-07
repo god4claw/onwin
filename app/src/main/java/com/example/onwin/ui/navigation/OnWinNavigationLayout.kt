@@ -1,5 +1,11 @@
 package com.example.onwin.ui.navigation
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -36,6 +42,7 @@ import com.example.onwin.ui.theme.onWinAtmosphere
 import com.example.onwin.ui.theme.onWinPanelBackground
 
 internal const val NavigationPanelTag = "navigation-bottom-panel"
+internal const val ScreenControlsMotionMillis = 320
 internal val LocalNavigationViewport = staticCompositionLocalOf<DpSize?> { null }
 internal val DpSize.isCompact get() = height <= 740.dp
 
@@ -49,6 +56,7 @@ internal data class NavigationPanel(
     val content: NavigationPanelContent?,
     val anchoredContent: (@Composable () -> Unit)?,
     val overlay: (@Composable () -> Unit)?,
+    val bottomPanelVisible: Boolean,
 )
 
 internal class NavigationPanelSlot(private val panels: NavigationPanels, private val entryId: String) {
@@ -59,9 +67,10 @@ internal class NavigationPanelSlot(private val panels: NavigationPanels, private
         content: NavigationPanelContent?,
         anchoredContent: (@Composable () -> Unit)? = null,
         overlay: (@Composable () -> Unit)? = null,
+        bottomPanelVisible: Boolean = true,
     ) {
         val latest = key(panels, entryId) {
-            rememberUpdatedState(NavigationPanel(loading, dimmed, content, anchoredContent, overlay))
+            rememberUpdatedState(NavigationPanel(loading, dimmed, content, anchoredContent, overlay, bottomPanelVisible))
         }
         SideEffect {
             panels.entries[entryId] = latest
@@ -98,12 +107,15 @@ internal fun OnWinNavigationLayout(
                 SideEffect { lastReady = displayed }
                 val panelModifier = Modifier.testTag(NavigationPanelTag)
                     .then(if (panel?.dimmed == true) Modifier.onWinDialogBackdrop() else Modifier)
-                OnWinPanelSurface(panelModifier) {
-                    NavigationPanelContents(
-                        model = displayed.content,
-                        owner = displayed.owner,
-                        enabled = panel != null && !panel.loading && displayed.owner == activeEntryId,
-                    )
+                val panelVisible = panel?.bottomPanelVisible != false
+                ScreenControls(visible = panelVisible, anchor = Alignment.Bottom) {
+                    OnWinPanelSurface(panelModifier) {
+                        NavigationPanelContents(
+                            model = displayed.content,
+                            owner = displayed.owner,
+                            enabled = panelVisible && panel != null && !panel.loading && displayed.owner == activeEntryId,
+                        )
+                    }
                 }
             }
             panel?.overlay?.invoke()
@@ -121,12 +133,13 @@ internal fun OnWinScreenLayout(
     panel: (@Composable (DpSize) -> NavigationPanelContent)?,
     anchoredContent: (@Composable () -> Unit)? = null,
     overlay: (@Composable () -> Unit)? = null,
+    bottomPanelVisible: Boolean = true,
     content: @Composable (DpSize) -> Unit,
 ) {
     val backdrop = if (dimmed) Modifier.onWinDialogBackdrop() else Modifier
     if (slot != null) {
         val viewport = checkNotNull(LocalNavigationViewport.current)
-        slot.Publish(loading, dimmed, panel?.invoke(viewport), anchoredContent, overlay)
+        slot.Publish(loading, dimmed, panel?.invoke(viewport), anchoredContent, overlay, bottomPanelVisible)
         // Корневой OnWinNavigationLayout уже рисует атмосферу на весь экран,
         // повторная заливка здесь — лишний полноэкранный overdraw.
         Box(modifier.fillMaxSize().then(backdrop)) { content(viewport) }
@@ -140,13 +153,34 @@ internal fun OnWinScreenLayout(
                         anchoredContent?.invoke()
                     }
                 }
-                if (panel != null) OnWinPanelSurface {
-                    NavigationPanelContents(panel(viewport), owner = null, enabled = !loading)
+                if (panel != null) {
+                    ScreenControls(visible = bottomPanelVisible, anchor = Alignment.Bottom) {
+                        OnWinPanelSurface {
+                            NavigationPanelContents(panel(viewport), owner = null, enabled = bottomPanelVisible && !loading)
+                        }
+                    }
                 }
             }
             overlay?.invoke()
         }
     }
+}
+
+@Composable
+internal fun ScreenControls(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    anchor: Alignment.Vertical = Alignment.Top,
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = expandVertically(tween(ScreenControlsMotionMillis), expandFrom = anchor) +
+            fadeIn(tween(ScreenControlsMotionMillis)),
+        exit = shrinkVertically(tween(ScreenControlsMotionMillis), shrinkTowards = anchor) +
+            fadeOut(tween(150)),
+    ) { content() }
 }
 
 private fun Modifier.behindOverlay(covered: Boolean): Modifier =

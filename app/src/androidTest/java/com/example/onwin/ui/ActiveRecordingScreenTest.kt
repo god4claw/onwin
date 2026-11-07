@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.unit.dp
@@ -337,15 +338,85 @@ class ActiveRecordingScreenTest {
         val export = compose.onNodeWithContentDescription("Экспорт в документ")
             .assertIsDisplayed().getUnclippedBoundsInRoot()
         val transcript = compose.onNodeWithTag("transcript-list").getUnclippedBoundsInRoot()
+        val transcriptPanel = compose.onNodeWithTag("transcript-panel").getUnclippedBoundsInRoot()
         assertEquals(play.top, export.top)
         assertEquals(play.bottom, export.bottom)
         assertEquals(export.right - export.left, export.bottom - export.top)
         assertEquals(12f, (export.left - play.right).value, 1f)
         assertEquals(((panel.left + panel.right) / 2).value, ((play.left + play.right) / 2).value, 1f)
-        assertEquals(16f, (panel.top - transcript.bottom).value, 1f)
-        assertTrue(transcript.bottom - transcript.top > 184.dp)
+        assertEquals(32f, (panel.top - transcript.bottom).value, 1f)
+        assertTrue(transcriptPanel.bottom - transcriptPanel.top > 184.dp)
         // Скроллится только лента реплик: у страницы своего скролла больше нет.
         assertEquals(1, compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun transcriptExpandsOverControlsAndCollapsesWithoutResettingScroll() {
+        val detail = transcriptDetail(transcriptSegments(50))
+        compose.setContent {
+            val panels = remember { NavigationPanels() }
+            val slot = remember(panels) { NavigationPanelSlot(panels, detail.session.id) }
+            ActiveRecordingTheme {
+                OnWinNavigationLayout(panels, detail.session.id) { viewport ->
+                    ActiveRecordingScreen(
+                        modifier = viewport,
+                        panelSlot = slot,
+                        detail = detail,
+                        loaded = true,
+                        elapsedMs = 250_000,
+                        processing = false,
+                        canStop = false,
+                        canCancel = false,
+                        cancelling = false,
+                        onBack = {},
+                        onStop = {},
+                        onCancel = {},
+                        onRenameSpeaker = {},
+                        playback = RecordingPlaybackState(durationMs = 250_000),
+                    )
+                }
+            }
+        }
+
+        val list = compose.onNodeWithTag("transcript-list")
+        val transcriptPanel = compose.onNodeWithTag("transcript-panel")
+        val panel = compose.onNodeWithTag(NavigationPanelTag)
+        val expand = compose.onNodeWithContentDescription("Развернуть реплики на весь экран")
+        val collapse = compose.onNodeWithContentDescription("Свернуть реплики")
+        val reply = compose.onNodeWithText("Реплика 25")
+        list.performScrollToIndex(25)
+        reply.assertIsDisplayed()
+        val normal = list.getUnclippedBoundsInRoot()
+        assertEquals(transcriptPanel.getUnclippedBoundsInRoot(), normal)
+        assertTrue(expand.getUnclippedBoundsInRoot().top - normal.top in 0.dp..8.dp)
+        panel.assertIsDisplayed()
+
+        compose.mainClock.autoAdvance = false
+        expand.performClick()
+        compose.mainClock.advanceTimeBy(160)
+        val expanding = list.getUnclippedBoundsInRoot()
+        assertTrue(expanding.left < normal.left)
+        compose.mainClock.autoAdvance = true
+
+        collapse.assertIsDisplayed()
+        expand.assertDoesNotExist()
+        panel.assertDoesNotExist()
+        compose.onNodeWithText("Встреча").assertDoesNotExist()
+        reply.assertIsDisplayed()
+        val fullscreen = list.getUnclippedBoundsInRoot()
+        assertEquals(transcriptPanel.getUnclippedBoundsInRoot(), fullscreen)
+        assertTrue(collapse.getUnclippedBoundsInRoot().top - fullscreen.top in 0.dp..8.dp)
+        assertTrue(fullscreen.left < expanding.left)
+        assertTrue(fullscreen.top < normal.top)
+        assertTrue(fullscreen.bottom > normal.bottom)
+
+        collapse.performClick()
+        expand.assertIsDisplayed()
+        collapse.assertDoesNotExist()
+        panel.assertIsDisplayed()
+        compose.onNodeWithText("Встреча").assertIsDisplayed()
+        reply.assertIsDisplayed()
+        assertEquals(normal, list.getUnclippedBoundsInRoot())
     }
 
     @Test
