@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Wav,
 
-    [ValidateSet("batch", "streaming", "both")]
+    [ValidateSet("batch", "streaming", "both", "vad")]
     [string]$Mode = "batch",
 
     [string]$Speakers = "auto",

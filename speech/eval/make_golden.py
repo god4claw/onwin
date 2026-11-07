@@ -21,6 +21,13 @@ across files, so use it for WER/latency, not DER.
 Writes <out>/<name>.wav (canonical 16 kHz mono PCM16), <name>.turns.jsonl
 (speaker/start/end/text) and <name>.rttm.
 
+Turn boundaries: the dataset marks turns as back-to-back slots that include
+the pauses. Each slot is tightened to its first/last sample above
+SILENCE_LEVEL, which recovers the speech span in clean files (their pauses
+are digital zeros). In noisy files the noise is everywhere and the slot stays
+as is. Breaths and low-level TTS noise still count as speech, so treat
+timestamp errors on synthetic data as comparative, not absolute.
+
 Usage: python make_golden.py <parquet> <out_dir> [--holdout]
 Needs numpy and pyarrow.
 
@@ -41,6 +48,7 @@ from extract_synthetic import write_wav
 
 RATE = 16_000
 GAP_SEC = 1.5
+SILENCE_LEVEL = 1e-3
 
 GOLDEN = [
     ("syn00_dialog2", 0),
@@ -63,6 +71,14 @@ HOLDOUT = [
     ("hold44_simult_static2", 44), ("hold51_pink2", 51), ("hold59_static2", 59),
     ("hold64_pink2", 64), ("hold20_mono1_hum", 20), ("hold43_mono1_brown", 43),
 ]
+
+
+def tighten(turn: dict, samples: np.ndarray) -> dict:
+    a, b = int(turn["start"] * RATE), int(turn["end"] * RATE)
+    loud = np.nonzero(np.abs(samples[a:b]) > SILENCE_LEVEL)[0]
+    if len(loud) == 0:
+        return turn
+    return {**turn, "start": round((a + loud[0]) / RATE, 3), "end": round((a + loud[-1] + 1) / RATE, 3)}
 
 
 def write_refs(out: Path, name: str, turns: list[dict]) -> None:
@@ -102,12 +118,15 @@ def main() -> None:
         if isinstance(speakers, str):
             speakers = json.loads(speakers)
         turns = [
-            {
-                "speaker": f"spk{int(s['speaker_id'])}",
-                "start": float(s["start"]),
-                "end": float(s["end"]),
-                "text": s["text"],
-            }
+            tighten(
+                {
+                    "speaker": f"spk{int(s['speaker_id'])}",
+                    "start": float(s["start"]),
+                    "end": float(s["end"]),
+                    "text": s["text"],
+                },
+                samples,
+            )
             for s in sorted(speakers, key=lambda s: float(s["start"]))
         ]
         write_wav(out / f"{name}.wav", samples, RATE)

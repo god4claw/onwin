@@ -239,6 +239,8 @@ internal data class BenchmarkReport(
     val device: BenchmarkDevice,
     val batch: BatchResult?,
     val streaming: StreamingResult?,
+    /** Файл через SherpaVadTranscriber (mode=vad); та же структура, что у batch. */
+    val vad: BatchResult? = null,
 )
 
 internal fun readBenchmarkDevice(context: Context): BenchmarkDevice {
@@ -312,6 +314,7 @@ internal fun BenchmarkReport.toJson(): String = JSONObject().apply {
     put("device", device.toJson())
     batch?.let { put("batch", it.toJson()) }
     streaming?.let { put("streaming", it.toJson()) }
+    vad?.let { put("vad", it.toJson()) }
 }.toString(2)
 
 private fun BenchmarkAudio.toJson(): JSONObject = JSONObject().apply {
@@ -522,9 +525,9 @@ internal fun BenchmarkReport.formatTable(): String {
             "recluster=${config.reclusterThreshold}",
     )
 
-    batch?.let { result ->
+    listOfNotNull(batch?.let { "batch" to it }, vad?.let { "vad (file via VAD pipeline)" to it }).forEach { (title, result) ->
         out.appendLine()
-        out.appendLine("batch (model load ${formatSeconds(result.modelLoadMs)})")
+        out.appendLine("$title (model load ${formatSeconds(result.modelLoadMs)})")
         out.appendLine(
             "  run   total     diar      asr      rtf   asrRtf   speed    pss  spk  seg",
         )

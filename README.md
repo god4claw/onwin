@@ -60,4 +60,6 @@ A/B-замеры рефакторинга v2 (112 прогонов, BEFORE/AFTER
 
 Финальная перекластеризация спикеров в streaming (короткие ответы сливались с собеседником): [`docs/bench-recluster.md`](docs/bench-recluster.md).
 
+Расшифровка файлов: batch против VAD-пайплайна (`SherpaVadTranscriber` — точнее, вдвое быстрее, не падает): [`docs/bench-vad-transcriber.md`](docs/bench-vad-transcriber.md).
+
 Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.

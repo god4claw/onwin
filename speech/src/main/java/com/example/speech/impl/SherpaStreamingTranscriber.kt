@@ -156,7 +156,18 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
         }
     }
 
-    override fun transcribeStream(audio: Flow<FloatArray>): Flow<StreamingEvent> = channelFlow {
+    override fun transcribeStream(audio: Flow<FloatArray>): Flow<StreamingEvent> =
+        transcribeStream(audio, expectedSpeakers = null)
+
+    /**
+     * То же с подсказкой числа участников: финальная перекластеризация в `Done`
+     * сводит реплики ровно к [expectedSpeakers] спикерам. Нужна обработке
+     * файлов ([SherpaVadTranscriber]); онлайн-метки в `Utterance` не меняются.
+     */
+    internal fun transcribeStream(
+        audio: Flow<FloatArray>,
+        expectedSpeakers: Int?,
+    ): Flow<StreamingEvent> = channelFlow {
         // Второй стрим не ждёт первый молча, а честно сообщает, что занято:
         // у микрофона ожидание может длиться бесконечно.
         if (!sessionMutex.tryLock()) {
@@ -303,7 +314,7 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                     // по всем embedding-ам сессии разом.
                     val final = SpeakerReclusterer(
                         mergeThreshold = config.speakerReclusterThreshold,
-                    ).relabel(records)
+                    ).relabel(records, expectedSpeakers)
                     trace?.invoke(
                         "stream done segments=${final.size} " +
                             "speakers online=${produced.map { it.speaker }.distinct().size}" +

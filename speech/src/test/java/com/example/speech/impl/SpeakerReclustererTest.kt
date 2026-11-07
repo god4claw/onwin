@@ -78,6 +78,35 @@ class SpeakerReclustererTest {
     }
 
     @Test
+    fun `expected speaker count forces exactly that many clusters`() {
+        // Три голоса, но пользователь сказал «двое»: самые похожие сливаются.
+        val records = listOf(
+            record(0, 4_000, A), record(4_200, 8_000, B), record(8_200, 12_000, C),
+            record(12_200, 16_000, A), record(16_200, 20_000, B),
+        )
+
+        val two = SpeakerReclusterer().relabel(records, expectedSpeakers = 2).map { it.speaker }
+        val one = SpeakerReclusterer().relabel(records, expectedSpeakers = 1).map { it.speaker }
+        val auto = SpeakerReclusterer().relabel(records).map { it.speaker }
+
+        assertEquals(2, two.toSet().size)
+        assertEquals(setOf(0), one.toSet())
+        assertEquals(3, auto.toSet().size)
+    }
+
+    @Test
+    fun `expected speakers keeps a short distinct speaker that auto mode would absorb`() {
+        val records = listOf(
+            record(0, 6_000, A), record(6_200, 7_000, C),
+            record(7_200, 13_000, A), record(13_200, 19_000, A),
+        )
+
+        val labels = SpeakerReclusterer().relabel(records, expectedSpeakers = 2).map { it.speaker }
+
+        assertEquals(listOf(0, 1, 0, 0), labels)
+    }
+
+    @Test
     fun `merge threshold controls how eagerly clusters merge`() {
         val records = (0 until 8).map { i -> record(i * 3_000L, i * 3_000L + 2_500, A, noise = 0.35f) }
 

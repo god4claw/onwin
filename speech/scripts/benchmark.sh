@@ -7,7 +7,8 @@ Usage: speech/scripts/benchmark.sh --wav <file> [options]
 
 Options:
   --wav <file>        Canonical WAV: 16 kHz, mono, PCM16 (required)
-  --mode <mode>       batch | streaming | both (default: batch)
+  --mode <mode>       batch | streaming | both | vad (default: batch)
+                      vad = file through SherpaVadTranscriber (what the app gets)
   --speakers <value>  auto or a fixed number for batch (default: auto)
   --threads <n>       ASR threads (default: 4)
   --runs <n>          Runs per mode (default: 3)
@@ -100,8 +101,8 @@ if [[ ! -f "$WAV" ]]; then
     echo "WAV not found: $WAV" >&2
     exit 1
 fi
-if [[ ! "$MODE" =~ ^(batch|streaming|both)$ ]]; then
-    echo "Invalid --mode: $MODE (expected batch, streaming or both)" >&2
+if [[ ! "$MODE" =~ ^(batch|streaming|both|vad)$ ]]; then
+    echo "Invalid --mode: $MODE (expected batch, streaming, both or vad)" >&2
     exit 1
 fi
 if [[ ! "$THREADS" =~ ^[0-9]+$ ]] || [[ "$THREADS" -lt 1 ]]; then

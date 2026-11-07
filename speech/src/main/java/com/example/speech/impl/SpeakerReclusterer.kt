@@ -25,6 +25,9 @@ import kotlin.math.sqrt
  * 3. Реплики без embedding (короче 0,5 с) получают метку ближайшей по времени.
  * 4. Номера — по первому появлению.
  *
+ * Если число участников известно (`expectedSpeakers`), слияние идёт до
+ * ровно стольких кластеров, без порога и без правила маленьких кластеров.
+ *
  * Параметры подобраны на золотом наборе и проверены на отложенной выборке,
  * которую подбор не видел: ошибка атрибуции 25,1 → 12,7 %, верное число
  * спикеров 9 → 13 из 18 (см. docs/bench-recluster.md).
@@ -41,15 +44,24 @@ internal class SpeakerReclusterer(
         require(maxItems >= 2) { "maxItems должен быть >= 2, получено $maxItems" }
     }
 
-    fun relabel(records: List<SegmentRecord>): List<Segment> {
+    fun relabel(records: List<SegmentRecord>, expectedSpeakers: Int? = null): List<Segment> {
+        require(expectedSpeakers == null || expectedSpeakers >= 1) {
+            "expectedSpeakers должен быть null или >= 1, получено $expectedSpeakers"
+        }
         if (records.isEmpty()) return emptyList()
 
         val withEmbedding = records.indices.filter { records[it].embedding?.isNotEmpty() == true }
-        if (withEmbedding.isEmpty()) return records.map { it.segment.copy(speaker = 0) }
+        if (withEmbedding.isEmpty() || expectedSpeakers == 1) {
+            return records.map { it.segment.copy(speaker = 0) }
+        }
 
         val clusters = initialClusters(records, withEmbedding)
-        mergeWhileSimilar(clusters)
-        absorbSmallClusters(clusters, records)
+        if (expectedSpeakers != null) {
+            mergeUntil(clusters, expectedSpeakers)
+        } else {
+            mergeWhileSimilar(clusters)
+            absorbSmallClusters(clusters, records)
+        }
 
         val labelOf = HashMap<Int, Int>(records.size)
         clusters.forEachIndexed { label, cluster -> cluster.members.forEach { labelOf[it] = label } }
@@ -101,8 +113,11 @@ internal class SpeakerReclusterer(
         return clusters
     }
 
-    private fun mergeWhileSimilar(clusters: MutableList<Cluster>) {
-        while (clusters.size > 1) {
+    private fun mergeWhileSimilar(clusters: MutableList<Cluster>) = mergeUntil(clusters, 1, mergeThreshold)
+
+    /** Сливает самую похожую пару, пока кластеров больше [target] и сходство ≥ [minSimilarity]. */
+    private fun mergeUntil(clusters: MutableList<Cluster>, target: Int, minSimilarity: Float = -2f) {
+        while (clusters.size > target) {
             var bestA = -1
             var bestB = -1
             var best = -2f
@@ -116,7 +131,7 @@ internal class SpeakerReclusterer(
                     }
                 }
             }
-            if (best < mergeThreshold) return
+            if (best < minSimilarity) return
             addInto(clusters[bestA], clusters[bestB])
             clusters.removeAt(bestB)
         }

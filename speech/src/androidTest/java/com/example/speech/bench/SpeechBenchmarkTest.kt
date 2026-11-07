@@ -13,6 +13,8 @@ import com.example.speech.api.VadConfig
 import com.example.speech.audio.WavReader
 import com.example.speech.impl.SherpaStreamingTranscriber
 import com.example.speech.impl.SherpaTranscriber
+import com.example.speech.impl.SherpaVadTranscriber
+import com.example.speech.api.Transcriber
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
@@ -111,6 +113,29 @@ class SpeechBenchmarkTest {
             reclusterThreshold = reclusterThreshold,
         )
 
+        // vad — расшифровка файла через SherpaVadTranscriber, как её увидит приложение.
+        val vadFile = if (mode == "vad") {
+            runFileTranscriber(
+                transcriber = SherpaVadTranscriber(context),
+                config = SpeechConfig(
+                    numThreads = threads,
+                    onlineClusterThreshold = onlineThreshold,
+                    clusterPruneMinMs = pruneMinMs,
+                    clusterPruneMinFraction = pruneMinFraction,
+                    speakerChangeThreshold = speakerChangeThreshold,
+                    vad = vad,
+                    agc = agc,
+                    speakerReclusterThreshold = reclusterThreshold,
+                ),
+                wav = wav,
+                audioMs = audioMs,
+                runs = runs,
+                expectedSpeakers = expectedSpeakers,
+            )
+        } else {
+            null
+        }
+
         val batch = if (mode == "batch" || mode == "both") {
             runBatch(
                 wav = wav,
@@ -159,6 +184,7 @@ class SpeechBenchmarkTest {
             device = readBenchmarkDevice(context),
             batch = batch,
             streaming = streaming,
+            vad = vadFile,
         )
 
         val outFile = outputFile()
@@ -209,8 +235,36 @@ class SpeechBenchmarkTest {
         }
     }
 
+    private suspend fun runFileTranscriber(
+        transcriber: Transcriber,
+        config: SpeechConfig,
+        wav: File,
+        audioMs: Long,
+        runs: Int,
+        expectedSpeakers: Int?,
+    ): BatchResult {
+        val loadStart = SystemClock.elapsedRealtime()
+        try {
+            transcriber.load(config)
+            val modelLoadMs = SystemClock.elapsedRealtime() - loadStart
+            val results = ArrayList<BatchRun>(runs)
+            repeat(runs) { index ->
+                results += runBatchOnce(
+                    transcriber = transcriber,
+                    wav = wav,
+                    audioMs = audioMs,
+                    index = index + 1,
+                    expectedSpeakers = expectedSpeakers,
+                )
+            }
+            return BatchResult(modelLoadMs = modelLoadMs, runs = results)
+        } finally {
+            runCatching { transcriber.release() }
+        }
+    }
+
     private suspend fun runBatchOnce(
-        transcriber: SherpaTranscriber,
+        transcriber: Transcriber,
         wav: File,
         audioMs: Long,
         index: Int,
@@ -511,6 +565,6 @@ class SpeechBenchmarkTest {
     }
 
     private companion object {
-        val MODES = setOf("batch", "streaming", "both")
+        val MODES = setOf("batch", "streaming", "both", "vad")
     }
 }

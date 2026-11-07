@@ -2,7 +2,8 @@
 
 ML-модуль приложения `onwin`: русская речь → текст с таймкодами и метками говорящих. Считается на устройстве, сеть в рантайме не нужна. Веса лежат в APK и читаются через `AssetManager`.
 
-- **Batch:** готовый WAV → диаризация → сегменты с текстом.
+- **Файл (рекомендуется): `SherpaVadTranscriber`** — готовый WAV через пайплайн streaming без пауз: АРУ → VAD → ASR по репликам → спикеры по всей записи. На наших замерах точнее и вдвое быстрее batch и не падает на монологе — [`docs/bench-vad-transcriber.md`](../docs/bench-vad-transcriber.md).
+- **Batch:** готовый WAV → диаризация pyannote → сегменты с текстом (`SherpaTranscriber`).
 - **Streaming (псевдостриминг):** поток PCM 16 кГц → VAD → распознавание каждой реплики → онлайн-кластеризация говорящих → в конце пересчёт спикеров по всем репликам.
 - Стек: GigaAM-v3 e2e CTC (ASR), pyannote segmentation + CAM++ (диаризация), Silero VAD, sherpa-onnx 1.13.0.
 - `minSdk 29`, `compileSdk 37`, Kotlin 2.4.21, JDK 17.
@@ -72,7 +73,8 @@ interface Transcriber {
     fun release()
 }
 
-class SherpaTranscriber(context: Context) : Transcriber
+class SherpaTranscriber(context: Context) : Transcriber      // pyannote + FastClustering
+class SherpaVadTranscriber(context: Context) : Transcriber   // VAD-пайплайн, рекомендуется для файлов
 
 interface StreamingTranscriber {
     suspend fun load(config: SpeechConfig)
@@ -400,15 +402,17 @@ dependencies {
 
 ```diff
 - private val transcriber: Transcriber = FakeTranscriber()
-+ private val transcriber: Transcriber = SherpaTranscriber(appContext)
++ private val transcriber: Transcriber = SherpaVadTranscriber(appContext)
 ```
 
+`SherpaVadTranscriber`, а не `SherpaTranscriber`: точнее на наших замерах, вдвое быстрее и не роняет процесс — batch-диаризация sherpa-onnx 1.13.0 падает SIGSEGV на монологе при `autoClusterThreshold` ≥ 0,80 (дефолт). Контракт тот же: `SegmentReady` по мере готовности (номер спикера предварительный), `Done` со всеми сегментами и финальными номерами — `DefaultProcessingController` уже заменяет ими предварительные (`replaceSegments`).
+
 ```kotlin
-import com.example.speech.impl.SherpaTranscriber
+import com.example.speech.impl.SherpaVadTranscriber
 
 class AppContainer(context: Context) {
     private val appContext = context.applicationContext
-    private val transcriber: Transcriber = SherpaTranscriber(appContext)
+    private val transcriber: Transcriber = SherpaVadTranscriber(appContext)
 
     val processingController = DefaultProcessingController(
         // ...

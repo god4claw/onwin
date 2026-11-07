@@ -16,6 +16,9 @@ Columns:
   spk      reference / hypothesis speaker count
   lat50/90/max  utterance latency: text arrived minus end of that speech in
            the audio feed. Meaningful only with pace=1 (real-time feed)
+  tsStart/tsEnd  timestamp error: median |start| and |end| difference, s,
+           between each reference turn and the hypothesis segment that
+           overlaps it most (synthetic references: comparative only)
   lag      max delay of the feed behind real time (pace>0): audio a live
            microphone would have to buffer. Should be ~0
   drain    time from the last audio chunk to Done
@@ -37,7 +40,7 @@ from score_wer import WerCounts, read_reference, score as score_wer
 from summarize_bench import STEP, labels_at, read_rttm, score as score_der
 
 MAX_DER_SPEAKERS = 6
-COLUMNS = ["label", "mode", "pace", "WER", "DER", "spkErr", "spk", "lat50", "lat90", "latMax", "lag", "drain", "rtf", "pss"]
+COLUMNS = ["label", "mode", "pace", "WER", "DER", "spkErr", "tsStart", "tsEnd", "spk", "lat50", "lat90", "latMax", "lag", "drain", "rtf", "pss"]
 
 
 def collect(paths: list[Path]) -> list[Path]:
@@ -61,6 +64,22 @@ def speaker_error(ref: list, segments: list[dict], mapping: dict) -> float | Non
             if mapping.get(next(iter(hyp_set))) != next(iter(ref_set)):
                 wrong += 1
     return wrong / both if both else None
+
+
+def timestamp_errors(ref: list, segments: list[dict]) -> tuple[float | None, float | None]:
+    starts, ends = [], []
+    for a, b, _ in ref:
+        best, overlap = None, 0.0
+        for s in segments:
+            o = min(b, s["endMs"] / 1000) - max(a, s["startMs"] / 1000)
+            if o > overlap:
+                best, overlap = s, o
+        if best is not None:
+            starts.append(abs(best["startMs"] / 1000 - a))
+            ends.append(abs(best["endMs"] / 1000 - b))
+    if not starts:
+        return None, None
+    return statistics.median(starts), statistics.median(ends)
 
 
 def seconds(ms: float | None) -> str:
@@ -89,12 +108,14 @@ def row_for(path: Path, refs: Path, mode: str) -> tuple[dict, WerCounts | None, 
 
     der = None
     spk_err = None
+    ts_start = ts_end = None
     ref_speakers = None
     rttm = refs / f"{label}.rttm"
     hyp_speakers = len({s["speaker"] for s in segments})
     if rttm.is_file():
         ref = read_rttm(rttm)
         ref_speakers = len({spk for _, _, spk in ref})
+        ts_start, ts_end = timestamp_errors(ref, segments)
         if ref_speakers <= MAX_DER_SPEAKERS and hyp_speakers <= MAX_DER_SPEAKERS and segments:
             scored = score_der(ref, segments)
             der = scored["der"]
@@ -108,6 +129,8 @@ def row_for(path: Path, refs: Path, mode: str) -> tuple[dict, WerCounts | None, 
         "WER": "-" if wer_counts is None else f"{wer_counts.wer * 100:.1f}%",
         "DER": "-" if der is None else f"{der * 100:.1f}%",
         "spkErr": "-" if spk_err is None else f"{spk_err * 100:.1f}%",
+        "tsStart": "-" if ts_start is None else f"{ts_start:.2f}",
+        "tsEnd": "-" if ts_end is None else f"{ts_end:.2f}",
         "spk": f"{ref_speakers if ref_speakers is not None else '?'}/{hyp_speakers}",
         "lat50": seconds(run.get("latencyP50Ms")) if streaming else "-",
         "lat90": seconds(run.get("latencyP90Ms")) if streaming else "-",
@@ -125,6 +148,10 @@ def row_for(path: Path, refs: Path, mode: str) -> tuple[dict, WerCounts | None, 
         "rtf": run.get("rtf"),
         "der": der,
         "spkErr": spk_err,
+        "tsStart": ts_start,
+        "tsEnd": ts_end,
+        "spkOk": ref_speakers is not None and ref_speakers == hyp_speakers,
+        "failed": False,
     }
     return row, wer_counts, raw
 
@@ -144,6 +171,9 @@ def summary_row(mode: str, rows: list[tuple[dict, WerCounts | None, dict]]) -> d
     streaming = mode == "streaming"
     der = med("der")
     spk_err = med("spkErr")
+    ts_start = med("tsStart")
+    ts_end = med("tsEnd")
+    spk_ok = sum(1 for r in raws if r.get("spkOk"))
     rtf = med("rtf")
     return {
         "label": "ALL (pooled WER, median/max)",
@@ -152,7 +182,9 @@ def summary_row(mode: str, rows: list[tuple[dict, WerCounts | None, dict]]) -> d
         "WER": f"{pooled.wer * 100:.1f}%" if pooled.ref_words else "-",
         "DER": "-" if der is None else f"{der * 100:.1f}%",
         "spkErr": "-" if spk_err is None else f"{spk_err * 100:.1f}%",
-        "spk": "",
+        "tsStart": "-" if ts_start is None else f"{ts_start:.2f}",
+        "tsEnd": "-" if ts_end is None else f"{ts_end:.2f}",
+        "spk": f"{spk_ok}/{len(raws)} ok",
         "lat50": seconds(med("lat50")) if streaming else "-",
         "lat90": seconds(med("lat90")) if streaming else "-",
         "latMax": seconds(worst("latMax")) if streaming else "-",
@@ -183,7 +215,7 @@ def main() -> None:
 
     files = collect(args.results)
     table: list[dict] = []
-    for mode in ("streaming", "batch"):
+    for mode in ("streaming", "batch", "vad"):
         rows = [r for r in (row_for(f, args.refs, mode) for f in files) if r is not None]
         if not rows:
             continue
