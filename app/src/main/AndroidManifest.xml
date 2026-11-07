@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Обработка записей в foreground-сервисе: dataSync до API 34, mediaProcessing с API 35. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -12,6 +13,14 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!--
+        ONNX Runtime GenAI объявляет сеть и ContentProvider телеметрии. Приложение
+        полностью офлайн, поэтому и разрешения, и провайдер вырезаются из манифеста:
+        без этого сборка «с LLM» перестала бы быть сборкой без INTERNET.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
 
     <application
         android:name=".OnWinApp"
@@ -42,6 +51,20 @@
 
         <!-- Позволяет собирать точные трейсы на Release без замедления -->
         <profileable android:shell="true" />
+
+        <!--
+            Оба AAR — onnxruntime-genai и onnxruntime — объявляют ContentProvider
+            телеметрии: он грузит libmat и инициализирует 1DS-клиент с сетью.
+            Приложению это не нужно и противоречит офлайну.
+        -->
+        <provider
+            android:name="ai.onnxruntime.genai.TelemetryInitializer"
+            android:authorities="${applicationId}.onnxruntime_genai_telemetry_initializer"
+            tools:node="remove" />
+        <provider
+            android:name="ai.onnxruntime.TelemetryInitializer"
+            android:authorities="${applicationId}.onnxruntime_telemetry_initializer"
+            tools:node="remove" />
     </application>
 
 </manifest>

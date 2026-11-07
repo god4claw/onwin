@@ -96,6 +96,9 @@ enum class ProcessingStage {
 
     /** Распознавание речи. */
     RECOGNITION,
+
+    /** Постобработка текста локальной LLM: правка ослышек, отдельно от ASR. */
+    CORRECTING,
 }
 
 /** Live capture data is not written to Room on every tick. */

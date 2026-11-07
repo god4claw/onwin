@@ -61,43 +61,59 @@ stream/batch → Done(segments) → release() ASR → postprocess → экспо
 - `LlmCorrector.budgetMs` — бюджет времени на реплику; не успел, упал, вернул
   мусор — текст остаётся исходным. Исходный текст всегда валиден.
 
-### Подключение рантайма
+### Подключение рантайма (сделано)
 
 `:speech` не тянет нативный рантайм: он весит десятки мегабайт и собирается
-под каждый ABI. Приложение подставляет `TextGenerator`:
+под каждый ABI. Приложение подставляет `TextGenerator` — и это уже не пример,
+а модуль [`llm/`](../llm/README.md):
+
+- `OnnxGenAiGenerator` реализует `TextGenerator` поверх ONNX Runtime GenAI
+  (AAR 0.19.0 в `llm/local-repo`, ядро ORT 1.31.1);
+- модель Qwen2.5-0.5B-Instruct (ONNX GenAI, int4) ставится отдельно скриптами
+  `llm/scripts/fetch-model.ps1` и `llm/scripts/push-model.ps1` — в APK её нет;
+- `OnDeviceCorrector.create(context)` собирает цепочку `CompositeCorrector`
+  (словарь + `LlmCorrector`) и возвращает `null`, если модели нет.
 
 ```kotlin
-class LlamaGenerator(private val modelPath: String) : TextGenerator {
-    override suspend fun load() = withContext(Dispatchers.IO) { /* llama_load_model */ }
-    override suspend fun generate(prompt: String, maxTokens: Int): String = withContext(Dispatchers.Default) {
-        // ВАЖНО: проверять флаг отмены на каждом токене, иначе
-        // withTimeoutOrNull не остановит нативный цикл.
-    }
-    override fun release() = Unit
-}
+// AppBindings: модель есть — коррекция будет, нет — этап пропускается.
+val corrector = OnDeviceCorrector.create(context)
 
-val corrector = CompositeCorrector(
-    listOf(
-        LexiconCorrector(terminologyFromSettings),
-        LlmCorrector(LlamaGenerator(path), budgetMs = 5_000),
-    ),
-)
-corrector.load()
-val corrected = TranscriptPostprocessor(corrector).process(done.segments)
-corrector.release()
+DefaultProcessingController(..., corrector = corrector)
 ```
 
-На финальном проходе бюджет можно ставить щедрее (5 с на реплику): спешить
-некуда, а обрыв на середине хуже ожидания.
+Порядок в очереди задан в `DefaultProcessingController.correct()`:
+`Done` ASR → `Transcriber.release()` → `CORRECTING` в статусе и прогрессе →
+`corrector.load()` → правка по репликам → `replaceSegments` → `DONE`.
+Модель корректора живёт до конца пачки и выгружается вместе с ASR.
+
+Обещание «LLM проверяет отмену на каждом токене» выполнено:
+`OnnxGenAiGenerator.generate` вызывает `ensureActive()` перед каждым
+`generateNextToken`, поэтому `withTimeoutOrNull` в `LlmCorrector` реально
+останавливает генерацию.
+
+На финальном проходе бюджет щедрее (5 с на реплику): спешить некуда, а обрыв
+на середине хуже ожидания.
 
 ### Кандидаты модели
 
-| Модель | Q4_K_M | Русский | Комментарий |
+| Модель | Размер | Русский | Комментарий |
 |---|---:|---|---|
-| Qwen3-0.6B | ~400 МБ | да | нужен `enable_thinking=false`, иначе ответ уходит в рассуждения |
-| Qwen2.5-0.5B-Instruct | ~400 МБ | да | проще в эксплуатации, без thinking-режима |
-| Gemma-3-1B | ~800 МБ | да | следующий шаг, если 0.6B не хватает |
+| Qwen2.5-0.5B-Instruct, ONNX int4 | ~0,9 ГБ | да | **выбрана**: грузится на эмуляторе, ответ на реплику ~10–15 с |
+| Qwen3-0.6B | ~400 МБ (GGUF) | да | нужен `enable_thinking=false`, иначе ответ уходит в рассуждения |
+| Gemma-3-1B | ~800 МБ | да | следующий шаг, если 0.5B не хватает |
 | Llama-3.2-1B | ~800 МБ | **нет** | не брать: русского в списке языков нет |
+
+### Проверено на устройстве
+
+Pixel_8_API36 (x86_64, Android 16), 2026-11-07, `:llm:connectedDebugAndroidTest`:
+
+- `OnnxGenAiGenerator` грузит модель и возвращает кириллицу;
+- полный `LlmCorrector.correct("я придёт завтра в девять")` возвращает исходный
+  текст: модель 0.5B без примеров в промпте переписывала фразу по смыслу
+  («я буду работать завтра в десять»), с двумя примерами — повторяет дословно;
+  в обоих случаях `CorrectionGuard` не дал испортить расшифровку;
+- значит, инфраструктура работает, а выигрыш по WER ещё надо доказать на
+  эталонных репликах (см. «Как проверять»).
 
 ## Как проверять
 

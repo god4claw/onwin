@@ -13,6 +13,7 @@ import com.example.speech.api.SpeechConfig
 import com.example.speech.api.Stage
 import com.example.speech.api.StreamingEvent
 import com.example.speech.api.StreamingTranscriber
+import com.example.speech.api.TextCorrector
 import com.example.speech.api.Transcriber
 import com.example.speech.api.TranscriptionEvent
 import kotlinx.coroutines.CancellationException
@@ -272,7 +273,6 @@ class FakeForegroundStarter(private val events: MutableList<String>) : Foregroun
 
 /** Считает захваты и освобождения. */
 class FakeWakeLock : WakeLockHolder {
-
     var acquires = 0
     var releases = 0
     private var held = false
@@ -292,3 +292,29 @@ class FakeWakeLock : WakeLockHolder {
         assertFalse("still held", held)
     }
 }
+
+/**
+ * [TextCorrector] по сценарию [behavior]; пишет загрузки и освобождения в общий
+ * [events], чтобы тесты видели порядок относительно release() движка.
+ */
+class FakeTextCorrector(private val events: MutableList<String> = mutableListOf()) : TextCorrector {
+
+    var loads = 0
+    var releases = 0
+
+    /** Сценарий правки; по умолчанию возвращает текст как есть. */
+    var behavior: suspend (String) -> String = { it }
+
+    override suspend fun load() {
+        loads++
+        events += "corrector load"
+    }
+
+    override fun release() {
+        releases++
+        events += "corrector release"
+    }
+
+    override suspend fun correct(text: String): String = behavior(text)
+}
+

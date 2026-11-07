@@ -13,13 +13,17 @@ import kotlin.math.roundToInt
 /** Сколько нумерованных шагов у обработки: конвертация, диаризация, распознавание. */
 const val STEP_COUNT = 3
 
-/** Номер шага этапа (1..[STEP_COUNT]); у загрузки моделей номера нет — она без прогресса. */
+/**
+ * Номер шага этапа (1..[STEP_COUNT]). `null` — этап вне нумерации: загрузка
+ * моделей без прогресса и необязательная коррекция, которой может не быть.
+ */
 val ProcessingStage.step: Int?
     get() = when (this) {
         ProcessingStage.CONVERTING -> 1
         ProcessingStage.LOADING_MODELS -> null
         ProcessingStage.DIARIZATION -> 2
         ProcessingStage.RECOGNITION -> 3
+        ProcessingStage.CORRECTING -> null
     }
 
 /** Время `00:12` или `1:02:03`. */
@@ -37,8 +41,8 @@ fun formatClock(ms: Long): String {
 
 /** «Шаг 2 из 3 · Определение говорящих · 40%»; процент — только этого этапа. */
 fun stageText(resources: Resources, job: RunningJob): String {
-    val step = job.stage.step ?: return resources.getString(R.string.stage_loading_models)
     val name = resources.getString(job.stage.nameRes)
+    val step = job.stage.step ?: return name
     val fraction = job.fraction ?: return resources.getString(R.string.stage_step, step, STEP_COUNT, name)
     return resources.getString(R.string.stage_step_percent, step, STEP_COUNT, name, (fraction * 100).roundToInt())
 }
@@ -51,6 +55,7 @@ val ProcessingStage.nameRes: Int
         ProcessingStage.LOADING_MODELS -> R.string.stage_loading_models
         ProcessingStage.DIARIZATION -> R.string.stage_diarization
         ProcessingStage.RECOGNITION -> R.string.stage_recognition
+        ProcessingStage.CORRECTING -> R.string.stage_correcting
     }
 
 /** Подпись статуса. */
@@ -61,6 +66,7 @@ val SessionStatus.labelRes: Int
         SessionStatus.QUEUED -> R.string.status_queued
         SessionStatus.CONVERTING -> R.string.status_converting
         SessionStatus.TRANSCRIBING -> R.string.status_transcribing
+        SessionStatus.CORRECTING -> R.string.status_correcting
         SessionStatus.DONE -> R.string.status_done
         SessionStatus.FAILED -> R.string.status_failed
         SessionStatus.CANCELLED -> R.string.status_cancelled

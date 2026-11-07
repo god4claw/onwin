@@ -150,6 +150,36 @@ rm -r parakeet.tar.bz2 "$p"
 лежат подкаталоги `models/`, `asr/`, `vad/`. Не распаковывайте во вложенную
 папку: `verifyBundledModels` не найдёт файлы.
 
+## 2б. LLM-модель (необязательно)
+
+Правка расшифровки локальной LLM включается только если на устройстве есть модель.
+Без неё приложение работает как раньше: этап `CORRECTING` просто не запускается.
+
+Модель — Qwen2.5-0.5B-Instruct (ONNX GenAI, int4), ~0,9 ГБ, в APK и в git не входит:
+[`llm/README.md`](llm/README.md).
+
+```powershell
+# 1. Скачать и сверить SHA-256 (llm/models.sha256)
+pwsh -File llm/scripts/fetch-model.ps1
+
+# 2. Проверить комплект до сборки
+.\gradlew.bat :llm:verifyLlmModel
+
+# 3. Залить на подключённое устройство
+pwsh -File llm/scripts/push-model.ps1
+```
+
+`push-model.ps1` копирует модель в `/sdcard/Android/data/com.example.onwin/files/llm` —
+приложение читает её оттуда без разрешений на внешнее хранилище. Каталог можно задать:
+`-Package com.example.onwin -Serial emulator-5554`.
+
+Проверка на устройстве (нужна модель, залитая в тестовый пакет):
+
+```powershell
+pwsh -File llm/scripts/push-model.ps1 -Package com.example.llm.test
+.\gradlew.bat :llm:connectedDebugAndroidTest
+```
+
 ## 3. Сборка и установка
 
 Debug-APK:

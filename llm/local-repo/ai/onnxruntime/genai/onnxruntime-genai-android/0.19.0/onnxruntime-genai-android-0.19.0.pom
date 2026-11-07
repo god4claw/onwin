@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>ai.onnxruntime.genai</groupId>
+    <artifactId>onnxruntime-genai-android</artifactId>
+    <version>0.19.0</version>
+    <packaging>aar</packaging>
+
+    <name>onnxruntime-genai-android</name>
+    <description>
+        ONNX Runtime GenAI: генерация текста поверх ONNX Runtime для Android.
+        Взято из GitHub Releases microsoft/onnxruntime-genai v0.19.0. Манифест
+        урезан: из него убраны INTERNET, ACCESS_NETWORK_STATE и
+        ContentProvider телеметрии — приложению не нужна сеть.
+    </description>
+    <url>https://github.com/microsoft/onnxruntime-genai</url>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://github.com/microsoft/onnxruntime-genai/blob/main/LICENSE</url>
+        </license>
+    </licenses>
+</project>

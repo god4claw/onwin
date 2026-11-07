@@ -124,7 +124,8 @@ internal fun RecordingCard(
                     color = when (status) {
                         SessionStatus.DONE -> RecordingReadyColor
                         SessionStatus.FAILED -> MaterialTheme.colorScheme.error
-                        SessionStatus.RECORDING, SessionStatus.CONVERTING, SessionStatus.TRANSCRIBING -> RecordingActiveColor
+                        SessionStatus.RECORDING, SessionStatus.CONVERTING, SessionStatus.TRANSCRIBING,
+                        SessionStatus.CORRECTING -> RecordingActiveColor
                         SessionStatus.QUEUED, SessionStatus.CANCELLED -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     maxLines = 1,
