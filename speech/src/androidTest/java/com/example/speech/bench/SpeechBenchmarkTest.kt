@@ -34,6 +34,16 @@ class SpeechBenchmarkTest {
     private val context = instrumentation.targetContext
     private val args = InstrumentationRegistry.getArguments()
 
+    /** Модель ASR: `-e asr_model e2e_ctc|e2e_rnnt` (по умолчанию — как в SpeechConfig). */
+    private val asrModel: com.example.speech.api.AsrModel by lazy {
+        when (args.getString("asr_model")?.trim()?.lowercase(Locale.US)) {
+            null, "" -> SpeechConfig().asrModel
+            "e2e_ctc" -> com.example.speech.api.AsrModel.E2E_CTC
+            "e2e_rnnt" -> com.example.speech.api.AsrModel.E2E_RNNT
+            else -> error("asr_model должен быть e2e_ctc или e2e_rnnt")
+        }
+    }
+
     @Test
     fun benchmark(): Unit = runBlocking {
         val wav = File(requiredArg("wav"))
@@ -121,6 +131,7 @@ class SpeechBenchmarkTest {
             agc = agc,
             reclusterThreshold = reclusterThreshold,
             embeddingModel = embeddingModel.name.lowercase(Locale.US),
+            asrModel = asrModel.name.lowercase(Locale.US),
         )
 
         // vad — расшифровка файла через SherpaVadTranscriber, как её увидит приложение.
@@ -136,6 +147,7 @@ class SpeechBenchmarkTest {
                     speakerChangeWindowMs = changeWindowMs,
                     speakerChangeHopMs = changeHopMs,
                     speakerChangeMinSegmentMs = changeMinMs,
+                    asrModel = asrModel,
                     embeddingModel = embeddingModel,
                     vad = vad,
                     agc = agc,
@@ -236,6 +248,7 @@ class SpeechBenchmarkTest {
                     autoClusterThreshold = autoClusterThreshold,
                     clusterPruneMinMs = pruneMinMs,
                     clusterPruneMinFraction = pruneMinFraction,
+                    asrModel = asrModel,
                     embeddingModel = embeddingModel,
                 ),
             )
@@ -365,6 +378,7 @@ class SpeechBenchmarkTest {
                     speakerChangeWindowMs = changeWindowMs,
                     speakerChangeHopMs = changeHopMs,
                     speakerChangeMinSegmentMs = changeMinMs,
+                    asrModel = asrModel,
                     embeddingModel = embeddingModel,
                     vad = vad,
                     agc = agc,

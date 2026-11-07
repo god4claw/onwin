@@ -16,11 +16,13 @@ import com.example.speech.api.SpeechConfig
  */
 internal fun SpeechConfig.batchModelsMatch(other: SpeechConfig): Boolean =
     numThreads == other.numThreads &&
+        asrModel == other.asrModel &&
         embeddingModel == other.embeddingModel &&
         autoClusterThreshold == other.autoClusterThreshold
 
 /** То же для streaming: embedding-модель и параметры Silero VAD входят в ключ. */
 internal fun SpeechConfig.streamingModelsMatch(other: SpeechConfig): Boolean =
     numThreads == other.numThreads &&
+        asrModel == other.asrModel &&
         embeddingModel == other.embeddingModel &&
         vad == other.vad

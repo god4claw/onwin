@@ -23,7 +23,7 @@ cd private-onwin
 
 ## 2. Веса
 
-Веса (~350 МБ) не хранятся в git — их нужно скачать один раз.
+Веса (~290 МБ) не хранятся в git — их нужно скачать один раз.
 
 > **Репозиторий приватный — скачивание только вручную, через браузер.**
 > GitHub не поддерживает публичный доступ к отдельным файлам приватного
@@ -72,6 +72,36 @@ curl -L -o speech/src/main/assets/models/speaker_embedding_eres2net.onnx \
    SHA-256: `c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5`, 26 485 263 байт.
    Без неё `verifyBundledModels` и `load()` падают со списком отсутствующих файлов.
 
+5. GigaAM-v3 e2e RNN-T (модель ASR по умолчанию) — публичный архив sherpa-onnx
+   (162 МиБ). Из него нужны четыре файла под нашими именами:
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16.tar.bz2" -OutFile "rnnt.tar.bz2"
+tar -xjf rnnt.tar.bz2
+$r = "sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16"
+Copy-Item "$r\encoder.int8.onnx" "speech\src\main\assets\models\gigaam_v3_e2e_rnnt_encoder_int8.onnx"
+Copy-Item "$r\decoder.onnx" "speech\src\main\assets\models\gigaam_v3_e2e_rnnt_decoder.onnx"
+Copy-Item "$r\joiner.onnx" "speech\src\main\assets\models\gigaam_v3_e2e_rnnt_joiner.onnx"
+Copy-Item "$r\tokens.txt" "speech\src\main\assets\asr\gigaam_v3_e2e_rnnt_tokens.txt"
+Remove-Item -Recurse rnnt.tar.bz2, $r
+```
+
+```bash
+curl -L -o rnnt.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16.tar.bz2"
+tar -xjf rnnt.tar.bz2
+r=sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16
+cp "$r/encoder.int8.onnx" speech/src/main/assets/models/gigaam_v3_e2e_rnnt_encoder_int8.onnx
+cp "$r/decoder.onnx" speech/src/main/assets/models/gigaam_v3_e2e_rnnt_decoder.onnx
+cp "$r/joiner.onnx" speech/src/main/assets/models/gigaam_v3_e2e_rnnt_joiner.onnx
+cp "$r/tokens.txt" speech/src/main/assets/asr/gigaam_v3_e2e_rnnt_tokens.txt
+rm -r rnnt.tar.bz2 "$r"
+```
+
+   Прежняя модель e2e CTC из архива v1 (`models/gigaam_v3_e2e_ctc_int8.onnx`,
+   `asr/gigaam_v3_e2e_ctc_tokens.txt`) больше не обязательна: она нужна только при
+   `SpeechConfig(asrModel = AsrModel.E2E_CTC)`. Всё, что лежит в assets, попадает
+   в APK, поэтому без неё APK меньше на 305 МиБ — удалите эти два файла.
+
 
 Проверка целостности архива:
 
@@ -85,7 +115,7 @@ curl -L -o speech/src/main/assets/models/speaker_embedding_eres2net.onnx \
 > asset API. Простого «без токена» в CI не бывает — это ограничение GitHub,
 > а не репозитория.
 
-`verifyBundledModels` проверяет наличие и SHA-256 всех шести файлов. Запускайте его
+`verifyBundledModels` проверяет наличие и SHA-256 всех восьми файлов. Запускайте его
 до сборки: без весов `:speech` соберётся, но упадёт в рантайме с
 `IllegalStateException: В APK отсутствуют модели`.
 

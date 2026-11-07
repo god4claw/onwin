@@ -80,11 +80,11 @@ Hilt создаёт общие для приложения Room, репозит�
 - Платформа: Android Library (AGP 9.4.1, Kotlin 2.4.21), minSdk 29, compileSdk 37, Java 11.
 - ASR/диаризация: нативный sherpa-onnx через JNI; AAR 1.13.0 (~38 МБ) лежит в локальном Maven-репозитории `local-repo` и подключается как `com.k2fsa.sherpa.onnx:sherpa-onnx:1.13.0`.
 - Модели (все в `speech/src/main/assets`, читаются через `AssetManager`, без скачивания):
-  - GigaAM-v3 e2e CTC int8 (~305 МБ) — русское ASR с пунктуацией;
-  - CAM++ (~27 МБ) — speaker embeddings для диаризации;
+  - GigaAM-v3 e2e RNN-T (~232 МБ: encoder int8, decoder, joiner) — русское ASR с пунктуацией; прежняя e2e CTC (~305 МБ) — необязательный запасной вариант;
+  - ERes2Net (~25 МБ) — speaker embeddings для диаризации; CAM++ (~27 МБ) — запасной;
   - pyannote segmentation int8 (~1.5 МБ) — диаризация;
   - Silero VAD (~0.6 МБ) — псевдостриминг;
-  - словарь GigaAM (~2 КБ).
+  - словарь GigaAM RNN-T (~13 КБ).
 - Офлайн: модуль не требует `INTERNET`; веса лежат в assets APK и проверяются по `models.sha256`. Сетевой загрузки в модуле нет.
 - Упаковка: в `app/build.gradle.kts` нужен `androidResources { noCompress += listOf("onnx", "txt") }` — `noCompress` библиотеки не пробрасывается в APK приложения, а sherpa-onnx не умеет читать сжатые assets через `AAsset_getBuffer`.
 - Псевдостриминг: `StreamingTranscriber` + `VadConfig`; `Flow<FloatArray>` 16 кГц / моно → VAD → offline-ASR по завершённым репликам. Текст и предварительные номера спикеров приходят по мере готовности реплик, окончательные номера — в `Done`.
@@ -116,5 +116,7 @@ VAD в шуме: порог Silero 0,35, сравнение с TEN VAD, пров
 ERes2Net вместо CAM++ для спикеров, набор живых диалогов: [`docs/bench-eres2net.md`](docs/bench-eres2net.md).
 
 Где пайплайн теряет слова: ASR по всему VAD-чанку, разрез длинных сегментов в тишине: [`docs/bench-asr-edges.md`](docs/bench-asr-edges.md).
+
+GigaAM-v3 e2e RNN-T вместо e2e CTC: пять версий модели, эмулятор, числа и латиница: [`docs/bench-asr-rnnt.md`](docs/bench-asr-rnnt.md).
 
 Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.

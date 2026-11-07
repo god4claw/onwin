@@ -69,6 +69,10 @@ param(
     [ValidateSet("", "camplus", "eres2net")]
     [string]$EmbeddingModel = "",
 
+    # Модель ASR: пусто — как в SpeechConfig (e2e_rnnt).
+    [ValidateSet("", "e2e_ctc", "e2e_rnnt")]
+    [string]$AsrModel = "",
+
     # Поиск смены говорящего внутри VAD-чанка, мс; -1 — не передавать (SpeechConfig).
     [int]$SpeakerChangeWindowMs = -1,
     [int]$SpeakerChangeHopMs = -1,
@@ -216,6 +220,7 @@ if (-not [double]::IsNaN($AgcTargetDb)) { $optionalArgs += @("-e", "agc_target_d
 if (-not [double]::IsNaN($AgcMaxGainDb)) { $optionalArgs += @("-e", "agc_max_gain_db", $AgcMaxGainDb.ToString($invariant)) }
 if ($DumpEmbeddings) { $optionalArgs += @("-e", "dump_embeddings", "on") }
 if ($EmbeddingModel) { $optionalArgs += @("-e", "embedding_model", $EmbeddingModel) }
+if ($AsrModel) { $optionalArgs += @("-e", "asr_model", $AsrModel) }
 if ($SpeakerChangeWindowMs -gt 0) { $optionalArgs += @("-e", "speaker_change_window_ms", "$SpeakerChangeWindowMs") }
 if ($SpeakerChangeHopMs -gt 0) { $optionalArgs += @("-e", "speaker_change_hop_ms", "$SpeakerChangeHopMs") }
 if ($SpeakerChangeMinMs -ge 0) { $optionalArgs += @("-e", "speaker_change_min_ms", "$SpeakerChangeMinMs") }

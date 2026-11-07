@@ -5,7 +5,7 @@ ML-модуль приложения `private-onwin`: русская речь �
 - **Файл (рекомендуется): `SherpaVadTranscriber`** — готовый WAV через пайплайн streaming без пауз: АРУ → VAD → ASR по репликам → спикеры по всей записи. На наших замерах точнее и вдвое быстрее batch и не падает на монологе — [`docs/bench-vad-transcriber.md`](../docs/bench-vad-transcriber.md).
 - **Batch:** готовый WAV → диаризация pyannote → сегменты с текстом (`SherpaTranscriber`).
 - **Streaming (псевдостриминг):** поток PCM 16 кГц → VAD → распознавание каждой реплики → онлайн-кластеризация говорящих → в конце пересчёт спикеров по всем репликам.
-- Стек: GigaAM-v3 e2e CTC (ASR), speaker embedding ERes2Net (диаризация; CAM++ — запасной вариант), pyannote segmentation (только batch), Silero VAD, sherpa-onnx 1.13.0.
+- Стек: GigaAM-v3 e2e RNN-T (ASR; e2e CTC — запасной вариант), speaker embedding ERes2Net (диаризация; CAM++ — запасной вариант), pyannote segmentation (только batch), Silero VAD, sherpa-onnx 1.13.0.
 - `minSdk 29`, `compileSdk 37`, Kotlin 2.4.21, JDK 17.
 
 Модуль отвечает за ML и чтение WAV. UI, Room, очередь, foreground-сервис, разрешения, декодирование и ресемплинг, хранение файлов и экспорт — на стороне приложения.
@@ -122,6 +122,7 @@ sealed interface StreamingEvent {
 | Поле | По умолчанию | Смысл |
 |---|---|---|
 | `numThreads: Int` | `4` | Потоки ASR и диаризации (VAD — всегда 1), `>= 1` |
+| `asrModel` | `E2E_RNNT` | `E2E_RNNT` (GigaAM-v3 e2e RNN-T, по умолчанию) или `E2E_CTC` (прежняя модель; её файлы в APK необязательны). RNN-T точнее: WER синтетики 16,2 → 15,1 %, числа верно по значению 85 → 93 % — [`docs/bench-asr-rnnt.md`](../docs/bench-asr-rnnt.md) |
 | `embeddingModel` | `ERES2NET` | `ERES2NET` (`speaker_embedding_eres2net.onnx`) или `CAMPLUS` (`speaker_embedding_camplus.onnx`). CAM++ обучена на китайской речи и путает два женских голоса — [`docs/bench-eres2net.md`](../docs/bench-eres2net.md) |
 | `autoClusterThreshold` | `0.80f` | Distance threshold для batch-авторежима: **ниже → больше говорящих**. При заданном `expectedSpeakers` не используется |
 | `onlineClusterThreshold` | `0.45f` | Косинусный порог streaming-кластеризации: **выше → больше говорящих**, `0..1` |
@@ -145,7 +146,7 @@ sealed interface StreamingEvent {
 
 ### `load(config)`
 
-- `suspend`, main-safe, идемпотентен: повторный вызов с тем же «ключом моделей» — no-op. Ключ — только то, что влияет на native-объекты (`numThreads`, `embeddingModel`, `autoClusterThreshold`); изменение `vad` или runtime-порогов не перезагружает веса, а обновляет сохранённый конфиг.
+- `suspend`, main-safe, идемпотентен: повторный вызов с тем же «ключом моделей» — no-op. Ключ — только то, что влияет на native-объекты (`numThreads`, `asrModel`, `embeddingModel`, `autoClusterThreshold`); изменение `vad` или runtime-порогов не перезагружает веса, а обновляет сохранённый конфиг.
 - Холодная загрузка: 5–10 с, ~450 МБ PSS (в основном native).
 - Бросает исключения, а не отдаёт их через `Flow`: `IllegalArgumentException` — уже при создании невалидного `SpeechConfig` (проверки в `init`), `IllegalStateException`, если размеры весов не совпадают или их нет, плюс ошибки native.
 - Вызывать до первого `transcribe()`. Без `load()` расшифровка отдаст `Failed(IllegalStateException("Модели не загружены..."))`.
@@ -246,7 +247,7 @@ try {
 - `release()` безопасен и во время стрима: он не трогает native-объекты, а запоминает запрос, и стрим освобождает модели в своём `finally`. После такого `release()` следующий `transcribeStream()` потребует нового `load()`.
 - `load()` сериализован с активной сессией: во время стрима он подождёт её конца. Для бесконечного микрофона это значит, что `load()` не вернётся, пока стрим не отменят: вызывайте `load()` до старта стрима.
 - Второй одновременный стрим не ждёт молча: он сразу получает `Failed(«Уже идёт другая streaming-сессия»)`.
-- `load()` поднимает ASR + VAD + embedding (2–3 с, ~450 МБ). Segmentation-модель в streaming в рантайме не используется, но `load()` всё равно проверяет наличие всех шести файлов.
+- `load()` поднимает ASR + VAD + embedding (2–3 с, ~450 МБ). Segmentation-модель в streaming в рантайме не используется, но `load()` всё равно проверяет наличие всех восьми обязательных файлов.
 - Batch и streaming одновременно — две копии моделей и ~2× память. Лучше последовательно.
 
 Настройка VAD:
@@ -264,16 +265,21 @@ SpeechConfig(
 
 ## Модели
 
-Шесть файлов, ~359 МиБ (376,8 МБ) в APK. В git не хранятся.
+Восемь файлов, ~275 МиБ (288,8 МБ) в APK. В git не хранятся.
 
 | Файл в `speech/src/main/assets/` | Размер, байт | Назначение |
 |---|---:|---|
-| `models/gigaam_v3_e2e_ctc_int8.onnx` | 319 869 121 | ASR, русский |
+| `models/gigaam_v3_e2e_rnnt_encoder_int8.onnx` | 224 570 820 | ASR GigaAM-v3 e2e RNN-T, encoder |
+| `models/gigaam_v3_e2e_rnnt_decoder.onnx` | 4 600 132 | ASR, decoder |
+| `models/gigaam_v3_e2e_rnnt_joiner.onnx` | 2 712 896 | ASR, joiner |
+| `asr/gigaam_v3_e2e_rnnt_tokens.txt` | 13 354 | токены ASR |
 | `models/speaker_embedding_camplus.onnx` | 28 281 138 | speaker embedding CAM++ (запасной) |
 | `models/speaker_embedding_eres2net.onnx` | 26 485 263 | speaker embedding ERes2Net (по умолчанию) |
 | `asr/segmentation.onnx` | 1 540 506 | pyannote segmentation |
-| `asr/gigaam_v3_e2e_ctc_tokens.txt` | 2 262 | токены ASR |
 | `vad/silero_vad.onnx` | 643 854 | Silero VAD |
+
+Необязательные — только для `AsrModel.E2E_CTC`: `models/gigaam_v3_e2e_ctc_int8.onnx`
+(319 869 121) и `asr/gigaam_v3_e2e_ctc_tokens.txt` (2 262). Без них APK меньше на 305 МиБ.
 
 Получить и распаковать:
 
@@ -311,11 +317,41 @@ curl -L -o speech/src/main/assets/models/speaker_embedding_eres2net.onnx \
    SHA-256: `c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5`, 26 485 263 байт.
    Без неё `verifyBundledModels` и `load()` падают со списком отсутствующих файлов.
 
+5. GigaAM-v3 e2e RNN-T (модель ASR по умолчанию) — публичный архив sherpa-onnx
+   (162 МиБ). Из него нужны четыре файла под нашими именами:
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16.tar.bz2" -OutFile "rnnt.tar.bz2"
+tar -xjf rnnt.tar.bz2
+$r = "sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16"
+Copy-Item "$r\encoder.int8.onnx" "speech\src\main\assets\models\gigaam_v3_e2e_rnnt_encoder_int8.onnx"
+Copy-Item "$r\decoder.onnx" "speech\src\main\assets\models\gigaam_v3_e2e_rnnt_decoder.onnx"
+Copy-Item "$r\joiner.onnx" "speech\src\main\assets\models\gigaam_v3_e2e_rnnt_joiner.onnx"
+Copy-Item "$r\tokens.txt" "speech\src\main\assets\asr\gigaam_v3_e2e_rnnt_tokens.txt"
+Remove-Item -Recurse rnnt.tar.bz2, $r
+```
+
+```bash
+curl -L -o rnnt.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16.tar.bz2"
+tar -xjf rnnt.tar.bz2
+r=sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16
+cp "$r/encoder.int8.onnx" speech/src/main/assets/models/gigaam_v3_e2e_rnnt_encoder_int8.onnx
+cp "$r/decoder.onnx" speech/src/main/assets/models/gigaam_v3_e2e_rnnt_decoder.onnx
+cp "$r/joiner.onnx" speech/src/main/assets/models/gigaam_v3_e2e_rnnt_joiner.onnx
+cp "$r/tokens.txt" speech/src/main/assets/asr/gigaam_v3_e2e_rnnt_tokens.txt
+rm -r rnnt.tar.bz2 "$r"
+```
+
+   Прежняя модель e2e CTC из архива v1 (`models/gigaam_v3_e2e_ctc_int8.onnx`,
+   `asr/gigaam_v3_e2e_ctc_tokens.txt`) больше не обязательна: она нужна только при
+   `SpeechConfig(asrModel = AsrModel.E2E_CTC)`. Всё, что лежит в assets, попадает
+   в APK, поэтому без неё APK меньше на 305 МиБ — удалите эти два файла.
+
 SHA-256 архива — `00020e21641414106a335ab4e5d2bfe18d91cc8a383d645a718344411c1c937b`.
 Для CI автоматического скачивания нет: нужен либо закешированный artifact, либо
 секрет с токеном. Подробности — в корневом [`README.md`](../README.md#2-веса).
 
-`verifyBundledModels` проверяет наличие и SHA-256 всех шести файлов (манифест — `speech/models.sha256`). В рантайме `load()` проверяет точные размеры через `AssetManager`; при несовпадении бросает `IllegalStateException` со списком отсутствующих файлов.
+`verifyBundledModels` проверяет наличие и SHA-256 всех восьми файлов (манифест — `speech/models.sha256`). В рантайме `load()` проверяет точные размеры через `AssetManager`; при несовпадении бросает `IllegalStateException` со списком отсутствующих файлов.
 
 `load()` проверяет весь набор в обоих режимах: batch не использует VAD, streaming — segmentation, но оба файла всё равно должны лежать в assets.
 
@@ -494,7 +530,7 @@ job.cancelAndJoin()          // отменит коллектор; Flow заве
 - [ ] `settings.gradle.kts` содержит `:speech` и `speech/local-repo`.
 - [ ] `implementation(project(":speech"))` в `:app`.
 - [ ] `noCompress += listOf("onnx", "txt")` в `:app`.
-- [ ] `:speech:verifyBundledModels` — `OK (6 файлов)`.
+- [ ] `:speech:verifyBundledModels` — `OK (8 файлов)`.
 - [ ] `:app:assembleDebug` собирается, APK устанавливается на arm64-устройство.
 - [x] Hilt предоставляет один `SherpaVadTranscriber`, `FakeTranscriber` доступен в тестовых наборах.
 
