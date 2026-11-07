@@ -75,33 +75,6 @@ Hilt создаёт общие для приложения Room, репозит�
 
 # Notes
 
-## Стек :speech v1 ( НЕАКТУАЛЕН )
-
-Чисто on-device Android-библиотека на Kotlin без UI. Инференс полностью
-офлайн; сеть нужна только один раз — при первой загрузке весов моделей.
-
-- Платформа: Android Library (AGP 9.4.1, Kotlin 2.4.21), minSdk 29,
-  compileSdk 37, Java 11.
-- ASR/диаризация: нативный sherpa-onnx (`speech/libs/sherpa-onnx.aar`,
-  ~38 МБ, версия 1.13.0) через JNI.
-- Модели:
-  - GigaAM-v3 e2e CTC int8 (~305 МБ) — русское ASR с пунктуацией;
-  - pyannote segmentation int8 (~1.5 МБ, в assets) — диаризация;
-  - CAM++ (~27 МБ) — speaker embeddings.
-- Асинхронность: Kotlin Coroutines + `Flow<TranscriptionEvent>`
-  (`channelFlow`, `Mutex`, `Dispatchers.IO`).
-- Вход: только готовый WAV 16 кГц / моно / PCM16 с каноническим
-  44-байтовым заголовком. Декодирование, downmix, ресемплинг и разбор
-  RIFF-чанков — зона `:app` (`AudioConverter`, `RiffWavReader`);
-  `:speech` это не дублирует и читает только заголовок и чанк `data`.
-- Выход: `Segment(speaker, startMs, endMs, text)`; события
-  `Progress → SegmentReady → Done / Failed`.
-- Загрузка моделей: собственный `ModelDownloader` — HTTP Range с Hugging
-  Face, докачка, проверка размера и SHA-256.
-- Интеграция: `:app` зависит от `:speech` через
-  `implementation(project(":speech"))`; обратной зависимости нет.
-- Тесты: JUnit4 + AndroidX Instrumentation/Espresso.
-
 ## Стек :speech v2
 `это чисто on-device Android-библиотека на Kotlin без UI и сетевой зависимости в рантайме:`
 - Платформа: Android Library (AGP 9.4.1, Kotlin 2.4.21), minSdk 29, compileSdk 37, Java 11.
