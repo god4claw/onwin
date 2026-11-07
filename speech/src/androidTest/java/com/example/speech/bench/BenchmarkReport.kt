@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Debug
 import android.os.Process
+import com.example.speech.api.AgcConfig
 import com.example.speech.api.Segment
 import com.example.speech.api.VadConfig
 import org.json.JSONArray
@@ -113,6 +114,8 @@ internal data class BenchmarkConfig(
     /** 0 — подача без пауз, 1 — реальное время, 2 — вдвое быстрее и т. д. */
     val pace: Float,
     val vad: VadConfig,
+    /** АРУ влияет только на streaming. */
+    val agc: AgcConfig,
 )
 
 internal data class BatchRun(
@@ -329,6 +332,14 @@ private fun BenchmarkConfig.toJson(): JSONObject = JSONObject().apply {
             put("maxSpeechMs", vad.maxSpeechMs)
         },
     )
+    put(
+        "agc",
+        JSONObject().apply {
+            put("enabled", agc.enabled)
+            put("targetDbfs", agc.targetDbfs)
+            put("maxGainDb", agc.maxGainDb)
+        },
+    )
 }
 
 private fun BenchmarkDevice.toJson(): JSONObject = JSONObject().apply {
@@ -472,7 +483,8 @@ internal fun BenchmarkReport.formatTable(): String {
             "prune=${config.clusterPruneMinMs}ms/${config.clusterPruneMinFraction} " +
             "change=${config.speakerChangeThreshold} pace=${config.pace} " +
             "vad=${config.vad.threshold}/${config.vad.minSilenceMs}ms/" +
-            "${config.vad.minSpeechMs}ms/${config.vad.maxSpeechMs}ms",
+            "${config.vad.minSpeechMs}ms/${config.vad.maxSpeechMs}ms " +
+            "agc=${if (config.agc.enabled) "${config.agc.targetDbfs}dBFS/+${config.agc.maxGainDb}dB" else "off"}",
     )
 
     batch?.let { result ->

@@ -6,7 +6,9 @@ import com.example.speech.api.Segment
 import com.example.speech.api.SpeechConfig
 import com.example.speech.api.StreamingEvent
 import com.example.speech.api.StreamingTranscriber
+import com.example.speech.audio.AutomaticGainControl
 import com.example.speech.audio.OnlineSpeakerClusterer
+import com.example.speech.audio.SampleHistory
 import com.example.speech.audio.SherpaVadEngine
 import com.example.speech.audio.SpeakerChangeConfig
 import com.example.speech.audio.SpeakerChangeSplitter
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -43,6 +46,11 @@ import java.util.concurrent.atomic.AtomicInteger
  * назначение кластера). Пишутся только тайминги и номера спикеров, без текста.
  *
  * Устройство:
+ * - АРУ ([AutomaticGainControl], `SpeechConfig.agc`) выравнивает громкость
+ *   только для VAD, чтобы он слышал и дальнего собеседника. ASR и embedding
+ *   получают исходный сигнал того же отрезка (из [SampleHistory]): усиление,
+ *   меняющееся внутри реплики, и поднятый фон портили embedding и сливали
+ *   спикеров;
  * - VAD-гейт принимает аудио и отдаёт готовые чанки;
  * - [StreamingChunkProcessor] режет чанк по смене говорящего, распознаёт куски
  *   и назначает спикера;
@@ -182,9 +190,19 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                     minSegmentMs = config.speakerChangeMinSegmentMs,
                 ),
             )
+            val agc = if (config.agc.enabled) {
+                AutomaticGainControl(
+                    targetDbfs = config.agc.targetDbfs,
+                    maxGainDb = config.agc.maxGainDb,
+                )
+            } else {
+                null
+            }
+            // Исходный сигнал для ASR/embedding, когда VAD работает по выровненному.
+            val history = agc?.let { SampleHistory(HISTORY_SECONDS * VadSegmenter.SAMPLE_RATE) }
             val trace = debugTrace()
             trace?.invoke(
-                "stream start threads=${config.numThreads} vad=${config.vad} " +
+                "stream start threads=${config.numThreads} vad=${config.vad} agc=${config.agc} " +
                     "online=${config.onlineClusterThreshold} change=${config.speakerChangeThreshold} " +
                     "prune=${config.clusterPruneMinMs}ms/${config.clusterPruneMinFraction}",
             )
@@ -203,11 +221,17 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             // Сколько VAD-чанков ждёт ASR. Рост до ASR_QUEUE_CAPACITY значит, что
             // распознавание не успевает за речью и скоро начнёт тормозить вход.
             val pending = AtomicInteger(0)
-            suspend fun enqueue(chunk: SpeechChunk) {
+            suspend fun enqueue(vadChunk: SpeechChunk) {
+                val original = history?.slice(vadChunk.startSample, vadChunk.samples.size)
+                if (history != null && original == null) {
+                    trace?.invoke("vad chunk older than history, ASR gets the AGC signal")
+                }
+                val chunk = original?.let { vadChunk.copy(samples = it) } ?: vadChunk
                 val waiting = pending.incrementAndGet()
                 trace?.invoke(
                     "vad chunk start=${chunk.startSample * 1000L / VadSegmenter.SAMPLE_RATE}ms " +
-                        "dur=${chunk.samples.size * 1000L / VadSegmenter.SAMPLE_RATE}ms pending=$waiting",
+                        "dur=${chunk.samples.size * 1000L / VadSegmenter.SAMPLE_RATE}ms pending=$waiting" +
+                        (agc?.let { " gain=%.1fdB".format(Locale.US, it.currentGainDb) } ?: ""),
                 )
                 queue.send(chunk)
             }
@@ -240,7 +264,8 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
 
             try {
                 audio.collect { samples ->
-                    val update = vad.accept(samples)
+                    history?.append(samples)
+                    val update = vad.accept(agc?.process(samples) ?: samples)
                     update.speechStartedAtSample?.let { sample ->
                         send(
                             StreamingEvent.SpeechStarted(
@@ -270,6 +295,7 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                             "speakers=${produced.map { it.speaker }.distinct().size}" +
                             "->${pruned.map { it.speaker }.distinct().size} " +
                             "audio=${vad.receivedSamples * 1000L / VadSegmenter.SAMPLE_RATE}ms " +
+                            (agc?.let { "agcMax=%.1fdB ".format(Locale.US, it.maxAppliedGainDb) } ?: "") +
                             "took=${(System.nanoTime() - streamStartedAt) / 1_000_000}ms",
                     )
                     send(StreamingEvent.Done(pruned))
@@ -367,6 +393,9 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
     private companion object {
         const val LOG_TAG = "Speech"
         const val ASR_QUEUE_CAPACITY = 8
+
+        /** Сколько исходного аудио держать для ASR при включённой АРУ: ~5,8 МБ. */
+        const val HISTORY_SECONDS = 90
 
         const val MIN_NEW_SPEAKER_MS = 2_500
         const val MIN_NEW_SPEAKER_SAMPLES = VadSegmenter.SAMPLE_RATE * MIN_NEW_SPEAKER_MS / 1000

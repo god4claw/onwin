@@ -3,6 +3,7 @@ package com.example.speech.bench
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.speech.api.AgcConfig
 import com.example.speech.api.Segment
 import com.example.speech.api.SpeechConfig
 import com.example.speech.api.Stage
@@ -62,6 +63,11 @@ class SpeechBenchmarkTest {
             minSpeechMs = nonNegativeInt("vad_min_speech_ms", defaults.vad.minSpeechMs),
             maxSpeechMs = positiveInt("vad_max_speech_ms", defaults.vad.maxSpeechMs),
         )
+        val agc = AgcConfig(
+            enabled = onOff("agc", defaults.agc.enabled),
+            targetDbfs = floatArg("agc_target_db", defaults.agc.targetDbfs),
+            maxGainDb = floatArg("agc_max_gain_db", defaults.agc.maxGainDb),
+        )
 
         val speakersArg = args.getString("speakers")
             ?.trim()
@@ -98,6 +104,7 @@ class SpeechBenchmarkTest {
             speakerChangeThreshold = speakerChangeThreshold,
             pace = pace,
             vad = vad,
+            agc = agc,
         )
 
         val batch = if (mode == "batch" || mode == "both") {
@@ -126,6 +133,7 @@ class SpeechBenchmarkTest {
                 pruneMinFraction = pruneMinFraction,
                 speakerChangeThreshold = speakerChangeThreshold,
                 vad = vad,
+                agc = agc,
                 pace = pace,
             )
         } else {
@@ -254,6 +262,7 @@ class SpeechBenchmarkTest {
         pruneMinFraction: Float,
         speakerChangeThreshold: Float,
         vad: VadConfig,
+        agc: AgcConfig,
         pace: Float,
     ): StreamingResult {
         val transcriber = SherpaStreamingTranscriber(context)
@@ -267,6 +276,7 @@ class SpeechBenchmarkTest {
                     clusterPruneMinFraction = pruneMinFraction,
                     speakerChangeThreshold = speakerChangeThreshold,
                     vad = vad,
+                    agc = agc,
                 ),
             )
             val modelLoadMs = SystemClock.elapsedRealtime() - loadStart
@@ -425,6 +435,22 @@ class SpeechBenchmarkTest {
             ?: error("$name должен быть числом, получено: $raw")
         require(value >= 0f && value.isFinite()) { "$name должен быть >= 0, получено: $value" }
         return value
+    }
+
+    private fun onOff(name: String, default: Boolean): Boolean {
+        val raw = args.getString(name)?.trim()?.lowercase(Locale.US)?.takeIf { it.isNotEmpty() }
+            ?: return default
+        return when (raw) {
+            "on", "true", "1" -> true
+            "off", "false", "0" -> false
+            else -> error("$name должен быть on или off, получено: $raw")
+        }
+    }
+
+    private fun floatArg(name: String, default: Float): Float {
+        val raw = args.getString(name)?.takeIf { it.isNotBlank() } ?: return default
+        return raw.toFloatOrNull()?.takeIf { it.isFinite() }
+            ?: error("$name должен быть числом, получено: $raw")
     }
 
     private fun threshold(name: String, default: Float): Float {

@@ -50,6 +50,15 @@ param(
     [ValidateRange(-1, 600000)]
     [int]$VadMaxSpeechMs = -1,
 
+    # АРУ перед VAD в streaming: пусто — не передавать (AgcConfig по умолчанию).
+    [ValidateSet("", "on", "off")]
+    [string]$Agc = "",
+
+    # NaN — не передавать.
+    [double]$AgcTargetDb = [double]::NaN,
+
+    [double]$AgcMaxGainDb = [double]::NaN,
+
     [string]$Serial = "",
 
     [string]$OutDir = "bench-results",
@@ -187,6 +196,9 @@ if ($VadThreshold -ge 0) { $optionalArgs += @("-e", "vad_threshold", $VadThresho
 if ($VadMinSilenceMs -ge 0) { $optionalArgs += @("-e", "vad_min_silence_ms", "$VadMinSilenceMs") }
 if ($VadMinSpeechMs -ge 0) { $optionalArgs += @("-e", "vad_min_speech_ms", "$VadMinSpeechMs") }
 if ($VadMaxSpeechMs -ge 0) { $optionalArgs += @("-e", "vad_max_speech_ms", "$VadMaxSpeechMs") }
+if ($Agc) { $optionalArgs += @("-e", "agc", $Agc) }
+if (-not [double]::IsNaN($AgcTargetDb)) { $optionalArgs += @("-e", "agc_target_db", $AgcTargetDb.ToString($invariant)) }
+if (-not [double]::IsNaN($AgcMaxGainDb)) { $optionalArgs += @("-e", "agc_max_gain_db", $AgcMaxGainDb.ToString($invariant)) }
 
 # Путь к результату обязан быть путём на устройстве: хост-путь (C:\...) даёт EROFS.
 Write-Host (

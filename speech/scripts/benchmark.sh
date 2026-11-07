@@ -23,6 +23,9 @@ Options:
   --vad-min-silence-ms <n>   Silence that closes an utterance (default: VadConfig, 450)
   --vad-min-speech-ms <n>    Minimum speech length (default: VadConfig, 250)
   --vad-max-speech-ms <n>    Forced utterance cut (default: VadConfig, 25000)
+  --agc <on|off>             Streaming gain control before VAD (default: AgcConfig, on)
+  --agc-target-db <x>        AGC target speech level, dBFS (default: AgcConfig, -20)
+  --agc-max-gain-db <x>      AGC gain ceiling, dB (default: AgcConfig, 24)
   --serial <serial>   adb device serial (default: first device)
   --out <dir>         Local output directory (default: bench-results)
   --no-build          Skip Gradle build/install
@@ -47,6 +50,9 @@ VAD_THRESHOLD=""
 VAD_MIN_SILENCE_MS=""
 VAD_MIN_SPEECH_MS=""
 VAD_MAX_SPEECH_MS=""
+AGC=""
+AGC_TARGET_DB=""
+AGC_MAX_GAIN_DB=""
 SERIAL=""
 OUT_DIR="bench-results"
 NO_BUILD=0
@@ -69,6 +75,9 @@ while [[ $# -gt 0 ]]; do
         --vad-min-silence-ms) VAD_MIN_SILENCE_MS="${2:?--vad-min-silence-ms requires a value}"; shift 2 ;;
         --vad-min-speech-ms) VAD_MIN_SPEECH_MS="${2:?--vad-min-speech-ms requires a value}"; shift 2 ;;
         --vad-max-speech-ms) VAD_MAX_SPEECH_MS="${2:?--vad-max-speech-ms requires a value}"; shift 2 ;;
+        --agc) AGC="${2:?--agc requires a value}"; shift 2 ;;
+        --agc-target-db) AGC_TARGET_DB="${2:?--agc-target-db requires a value}"; shift 2 ;;
+        --agc-max-gain-db) AGC_MAX_GAIN_DB="${2:?--agc-max-gain-db requires a value}"; shift 2 ;;
         --serial) SERIAL="${2:?--serial requires a value}"; shift 2 ;;
         --out) OUT_DIR="${2:?--out requires a value}"; shift 2 ;;
         --no-build) NO_BUILD=1; shift ;;
@@ -140,7 +149,22 @@ for pair in "vad-min-silence-ms:$VAD_MIN_SILENCE_MS" "vad-min-speech-ms:$VAD_MIN
     fi
 done
 
+if [[ -n "$AGC" && ! "$AGC" =~ ^(on|off)$ ]]; then
+    echo "Invalid --agc: $AGC (expected on or off)" >&2
+    exit 1
+fi
+for pair in "agc-target-db:$AGC_TARGET_DB" "agc-max-gain-db:$AGC_MAX_GAIN_DB"; do
+    value="${pair#*:}"
+    if [[ -n "$value" ]] && ! awk -v v="$value" 'BEGIN { exit !(v + 0 == v) }'; then
+        echo "Invalid --${pair%%:*}: $value (expected a number)" >&2
+        exit 1
+    fi
+done
+
 OPTIONAL_ARGS=()
+[[ -n "$AGC" ]] && OPTIONAL_ARGS+=(-e agc "$AGC")
+[[ -n "$AGC_TARGET_DB" ]] && OPTIONAL_ARGS+=(-e agc_target_db "$AGC_TARGET_DB")
+[[ -n "$AGC_MAX_GAIN_DB" ]] && OPTIONAL_ARGS+=(-e agc_max_gain_db "$AGC_MAX_GAIN_DB")
 [[ -n "$VAD_THRESHOLD" ]] && OPTIONAL_ARGS+=(-e vad_threshold "$VAD_THRESHOLD")
 [[ -n "$VAD_MIN_SILENCE_MS" ]] && OPTIONAL_ARGS+=(-e vad_min_silence_ms "$VAD_MIN_SILENCE_MS")
 [[ -n "$VAD_MIN_SPEECH_MS" ]] && OPTIONAL_ARGS+=(-e vad_min_speech_ms "$VAD_MIN_SPEECH_MS")

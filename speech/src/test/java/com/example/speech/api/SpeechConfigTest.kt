@@ -33,6 +33,15 @@ class SpeechConfigTest {
     }
 
     @Test
+    fun `rejects invalid agc settings`() {
+        assertThrows(IllegalArgumentException::class.java) { AgcConfig(targetDbfs = 0f) }
+        assertThrows(IllegalArgumentException::class.java) { AgcConfig(targetDbfs = -60f) }
+        assertThrows(IllegalArgumentException::class.java) { AgcConfig(maxGainDb = -1f) }
+        assertThrows(IllegalArgumentException::class.java) { AgcConfig(maxGainDb = 50f) }
+        AgcConfig(enabled = false, targetDbfs = -40f, maxGainDb = 0f)
+    }
+
+    @Test
     fun `accepts boundary values`() {
         SpeechConfig(numThreads = 1, autoClusterThreshold = 0f, onlineClusterThreshold = 1f)
         SpeechConfig(autoClusterThreshold = 1f, onlineClusterThreshold = 0f)

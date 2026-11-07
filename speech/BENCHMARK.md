@@ -66,8 +66,11 @@ WAV и результаты лежат в **internal storage** приложен�
 | `-VadMinSilenceMs` | `--vad-min-silence-ms` | `VadConfig` (450) | Тишина, после которой реплика закрывается |
 | `-VadMinSpeechMs` | `--vad-min-speech-ms` | `VadConfig` (250) | Минимальная длина речи |
 | `-VadMaxSpeechMs` | `--vad-max-speech-ms` | `VadConfig` (25000) | Принудительный разрез длинной реплики |
+| `-Agc` | `--agc` | `AgcConfig` (`on`) | АРУ перед VAD в streaming: `on` / `off` |
+| `-AgcTargetDb` | `--agc-target-db` | `AgcConfig` (−20) | Целевой уровень речи, dBFS |
+| `-AgcMaxGainDb` | `--agc-max-gain-db` | `AgcConfig` (24) | Потолок усиления, дБ |
 
-VAD-параметры по умолчанию не передаются: тест берёт значения из `VadConfig`, чтобы у дефолтов был один источник.
+VAD- и АРУ-параметры по умолчанию не передаются: тест берёт значения из `VadConfig` и `AgcConfig`, чтобы у дефолтов был один источник.
 
 ## Задержка streaming
 
@@ -106,7 +109,7 @@ adb shell setprop log.tag.Speech INFO    # выключить
 ```
 
 `SherpaStreamingTranscriber` пишет по строке на VAD-чанк (`pending` — сколько
-чанков ждёт ASR), разрез по смене спикера, каждую реплику (`asr`, `emb` в мс,
+чанков ждёт ASR, `gain` — текущее усиление АРУ), разрез по смене спикера, каждую реплику (`asr`, `emb` в мс,
 `spk`, `sim` — косинус с кластером, `new`, `via` — как выбран спикер) и итог
 сессии. Распознанный текст в лог не пишется — только длина (`chars`).
 
@@ -116,6 +119,6 @@ adb shell setprop log.tag.Speech INFO    # выключить
 - `bench-results/<label>-<timestamp>.txt`
 - `latest.json` и `latest.txt` в каталоге результатов.
 
-JSON (`schemaVersion` 2) содержит `generatedAt`, `label`, `mode`, `audio`, `config`, `device`, `batch`, `streaming`. В `config` пишутся `threads`, `runs`, `speakers`, `chunkMs`, `autoClusterThreshold`, `onlineClusterThreshold`, `clusterPruneMinMs`, `clusterPruneMinFraction`, `speakerChangeThreshold`, `pace` и `vad`. Для каждого режима есть `modelLoadMs`, список `runs` и `summary` с медианами: `medianTotalMs`, `medianRtf`, `medianSpeedX`, `medianPssMb`, `medianSpeakerCount`, `medianSegments`; у streaming ещё `medianLatencyP50Ms`, `medianLatencyP90Ms`, `medianLatencyMaxMs`, `medianMaxFeedLagMs`. Версия 2 только добавляет поля, скрипты для версии 1 продолжают работать.
+JSON (`schemaVersion` 2) содержит `generatedAt`, `label`, `mode`, `audio`, `config`, `device`, `batch`, `streaming`. В `config` пишутся `threads`, `runs`, `speakers`, `chunkMs`, `autoClusterThreshold`, `onlineClusterThreshold`, `clusterPruneMinMs`, `clusterPruneMinFraction`, `speakerChangeThreshold`, `pace`, `vad` и `agc` (поле `agc` добавлено без смены версии схемы: старые JSON без него читаются как «АРУ не было»). Для каждого режима есть `modelLoadMs`, список `runs` и `summary` с медианами: `medianTotalMs`, `medianRtf`, `medianSpeedX`, `medianPssMb`, `medianSpeakerCount`, `medianSegments`; у streaming ещё `medianLatencyP50Ms`, `medianLatencyP90Ms`, `medianLatencyMaxMs`, `medianMaxFeedLagMs`. Версия 2 только добавляет поля, скрипты для версии 1 продолжают работать.
 
 Таблица показывает по каждому прогону время, RTF, скорость, PSS, число спикеров и сегментов; у streaming — ещё `lat50`/`lat90`/`latMax` и `lag`.

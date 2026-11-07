@@ -56,4 +56,6 @@ A/B-замеры рефакторинга v2 (112 прогонов, BEFORE/AFTER
 
 Псевдостриминг в реальном темпе на золотом наборе (задержки, WER, атрибуция спикеров, падение batch на монологе): [`docs/bench-golden-baseline.md`](docs/bench-golden-baseline.md).
 
+АРУ перед VAD (дальний собеседник терялся VAD-ом): [`docs/bench-agc.md`](docs/bench-agc.md).
+
 Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.

@@ -47,6 +47,8 @@ WAV 16 кГц моно PCM16
 
 ```text
 Flow<FloatArray> 16 кГц моно, [-1..1], любой размер чанка
+   → АРУ для VAD: тихая речь подтягивается к −20 dBFS (AgcConfig);
+     ASR и embedding дальше получают исходный сигнал тех же отрезков
    → Silero VAD (окно 512 сэмплов)
    → SpeechStarted при начале речи
    → по тишине (450 мс) или максимуму (25 с) реплика уходит в ASR
@@ -115,12 +117,12 @@ sealed interface StreamingEvent {
 | `onlineClusterThreshold` | `0.45f` | Косинусный порог streaming-кластеризации: **выше → больше говорящих**, `0..1` |
 | `maxOnlineSpeakers` | `20` | Потолок говорящих в стриме, `>= 1` |
 | `vad: VadConfig` | см. ниже | Только streaming |
-| `agc: AgcConfig` | см. ниже | Зарезервировано под АРУ перед VAD; в этом срезе не используется |
+| `agc: AgcConfig` | см. ниже | АРУ перед VAD, только streaming |
 | `speakerReclusterThreshold` | `0.60f` | Зарезервировано под финальную перекластеризацию; в этом срезе не используется |
 
 `VadConfig`: `threshold = 0.5f`, `minSilenceMs = 450`, `minSpeechMs = 250`, `maxSpeechMs = 25_000`.
 
-`AgcConfig`: `enabled = true`, `targetDbfs = -20f`, `maxGainDb = 24f`. Поля контракта под автоматическую регулировку усиления; в этом срезе ещё не используются.
+`AgcConfig`: `enabled = true`, `targetDbfs = -20f`, `maxGainDb = 24f`. Без АРУ Silero VAD пропускал собеседника, который сидит дальше от микрофона (−33…−37 dBFS при фоне −47): на реальной записи терялось ~9 с разборчивой речи, и порог VAD 0,25 не помогал. АРУ работает только по прошлому сигналу, без задержки; громкую речь не приглушает; на кадрах не громче фона усиление не растёт, а в паузах возвращается к 0 дБ. Выровненный сигнал видит только VAD: ASR и embedding получают исходный отрезок (кольцевой буфер на 90 с), иначе меняющееся усиление и поднятый фон сливали спикеров. Выключить — `AgcConfig(enabled = false)`.
 
 `SpeechConfig` и `VadConfig` проверяют значения в `init`: `numThreads >= 1`, `autoClusterThreshold` и `onlineClusterThreshold` в `0..1`, `maxOnlineSpeakers >= 1`, `threshold` в `0..1`, `minSilenceMs >= 0`, `minSpeechMs >= 0`, `maxSpeechMs > minSpeechMs`. Отдельных проверок в `load()` больше нет.
 
