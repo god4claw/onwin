@@ -23,6 +23,14 @@ interface SessionRepository {
     /** Сессия без сегментов; `null`, если её нет. */
     suspend fun get(id: String): Session?
 
+    /**
+     * Проверяет, существует ли незавершённая сессия импорта, использующая данный [sourceUri].
+     *
+     * @param sourceUri URI исходного аудиофайла.
+     * @return `true`, если для сохранения и обработки импорта все еще требуется доступ к исходнику.
+     */
+    suspend fun hasImportNeedingSource(sourceUri: String): Boolean
+
     /** Добавляет новую сессию. */
     suspend fun create(session: Session)
 

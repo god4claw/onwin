@@ -43,6 +43,15 @@ abstract class SessionDao {
     @Query("SELECT * FROM sessions WHERE id = :id")
     abstract suspend fun getSession(id: String): SessionEntity?
 
+    /**
+     * Проверяет, существует ли незавершённая сессия с указанным [sourceUri].
+     *
+     * @param sourceUri URI исходного медиафайла.
+     * @return `true`, если в БД есть сессия с этим [sourceUri] и её статус отличен от `DONE`.
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM sessions WHERE sourceUri = :sourceUri AND status != 'DONE')")
+    abstract suspend fun hasImportNeedingSource(sourceUri: String): Boolean
+
     /** Добавляет новую сессию; повтор [SessionEntity.id] — ошибка. */
     @Insert
     abstract suspend fun insertSession(session: SessionEntity)
