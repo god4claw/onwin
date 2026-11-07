@@ -27,3 +27,4 @@ rootProject.name = "OnWin"
 include(":app")
 include(":speech")
 include(":baselineprofile")
+include(":llm")
