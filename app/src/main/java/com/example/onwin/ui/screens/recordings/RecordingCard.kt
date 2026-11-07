@@ -55,7 +55,7 @@ internal fun RecordingCard(
     onDelete: () -> Unit,
     onRename: () -> Unit,
     modifier: Modifier = Modifier,
-    visibleBlurFraction: Float = 0f,
+    visibleBlurFraction: () -> Float = { 0f },
 ) {
     val shape = RoundedCornerShape(22.dp)
     val verticalPadding = if (minHeight < 79.dp) 10.dp else 14.dp

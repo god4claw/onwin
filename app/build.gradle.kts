@@ -37,17 +37,20 @@ android {
             optimization {
                 enable = true
             }
+            signingConfig = signingConfigs.getByName("debug")
         }
         // Instrumentation must not replace an installed copy of the app or its data.
         create("nonMinifiedRelease") {
             applicationIdSuffix = ".profile"
             matchingFallbacks += "release"
             optimization { enable = false }
+            signingConfig = signingConfigs.getByName("debug")
         }
         create("benchmarkRelease") {
             applicationIdSuffix = ".profile"
             matchingFallbacks += "release"
             optimization { enable = true }
+            signingConfig = signingConfigs.getByName("debug")
         }
         configureEach {
             //noinspection ChromeOsAbiSupport

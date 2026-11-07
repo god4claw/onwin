@@ -36,25 +36,25 @@ class RecordingPlaybackTest {
                 val playback = rememberRecordingPlayback(wav)
                 SideEffect { player = playback }
                 ActiveRecordingTheme {
-                    RecordingPlaybackPanel(false, playback.state, 12_000L, playback::toggle, playback::seekTo)
+                    RecordingPlaybackPanel(false, playback.state, playback.positionState, 12_000L, playback::toggle, playback::seekTo)
                 }
             }
 
             compose.waitUntil(10_000L) { player.state.ready }
             compose.onNodeWithContentDescription("Шкала воспроизведения")
                 .performSemanticsAction(SemanticsActions.SetProgress) { it(0.5f) }
-            compose.waitUntil(5_000L) { player.state.positionMs == 6_000L }
+            compose.waitUntil(5_000L) { player.positionMs == 6_000L }
             // The player requests frames continuously. Do not let an idle wait run it to EOF.
             compose.mainClock.autoAdvance = false
             compose.onNodeWithContentDescription("Воспроизвести аудио").performClick()
             compose.waitUntil(8_000L) {
                 compose.mainClock.advanceTimeByFrame()
-                player.state.playing && player.state.positionMs >= 6_350L
+                player.state.playing && player.positionMs >= 6_350L
             }
             compose.onNodeWithContentDescription("Приостановить аудио").performClick()
             compose.mainClock.advanceTimeByFrame()
             compose.onNodeWithContentDescription("Воспроизвести аудио").assertIsDisplayed()
-            compose.runOnIdle { assertTrue(player.state.positionMs in 6_350L until 12_000L) }
+            compose.runOnIdle { assertTrue(player.positionMs in 6_350L until 12_000L) }
         } finally {
             wav.delete()
         }

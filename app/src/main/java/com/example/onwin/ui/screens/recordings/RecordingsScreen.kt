@@ -119,6 +119,33 @@ internal fun RecordingsScreen(
                     onStopRecording = onStopRecording,
                 )
             },
+            anchoredContent = {
+                RecordingsTheme {
+                    val liveLabel = stringResource(R.string.recordings_live_transcription)
+                    Row(
+                        modifier = Modifier
+                            .onSizeChanged { switchOverlayHeightPx = it.height }
+                            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                            .padding(start = 22.dp, end = 22.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = liveLabel,
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .padding(end = 8.dp),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Switch(
+                            checked = liveTranscription,
+                            onCheckedChange = onLiveTranscriptionChange,
+                            enabled = recording == null && !state.startingRecording && !savingRecording,
+                            modifier = Modifier.semantics { contentDescription = liveLabel },
+                        )
+                    }
+                }
+            },
         ) { viewport ->
             val compact = viewport.isCompact
             val safeTop = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
@@ -164,30 +191,6 @@ internal fun RecordingsScreen(
                         }
                     }
                     Spacer(Modifier.height(listPanelGap))
-                }
-                val liveLabel = stringResource(R.string.recordings_live_transcription)
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .onSizeChanged { switchOverlayHeightPx = it.height }
-                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                        .padding(start = 22.dp, end = 22.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = liveLabel,
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .padding(end = 8.dp),
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Switch(
-                        checked = liveTranscription,
-                        onCheckedChange = onLiveTranscriptionChange,
-                        enabled = recording == null && !state.startingRecording && !savingRecording,
-                        modifier = Modifier.semantics { contentDescription = liveLabel },
-                    )
                 }
             }
         }

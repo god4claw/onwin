@@ -6,7 +6,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.navigation.NavController
@@ -52,7 +51,6 @@ internal fun NavGraph(
 
             composable<RecordingsDestination> { recordingsEntry ->
                 RecordingsRoute(
-                    modifier = Modifier.navigationEdgeShadow(atTop = true),
                     panelSlot = remember(panels, recordingsEntry.id) { NavigationPanelSlot(panels, recordingsEntry.id) },
                     onOpen = { id ->
                         if (navController.currentDestination?.hasRoute<RecordingsDestination>() == true) {
@@ -64,7 +62,6 @@ internal fun NavGraph(
 
             composable<ActiveRecordingDestination> { recordingEntry ->
                 ActiveRecordingRoute(
-                    modifier = Modifier.navigationEdgeShadow(),
                     panelSlot = remember(panels, recordingEntry.id) { NavigationPanelSlot(panels, recordingEntry.id) },
                     onBack = {
                         if (navController.currentBackStackEntry == recordingEntry) {

@@ -109,6 +109,7 @@ internal fun ActiveRecordingRoute(
             onCancel = { confirmCancelProcessing = processing },
             onRenameSpeaker = { editingSpeaker = it },
             playback = playback.state,
+            playbackPosition = playback.positionState,
             onTogglePlayback = playback::toggle,
             onSeekPlayback = playback::seekTo,
             onRetry = {

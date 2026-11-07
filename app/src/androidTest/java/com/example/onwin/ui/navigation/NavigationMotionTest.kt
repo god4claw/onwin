@@ -62,10 +62,9 @@ class NavigationMotionTest {
 
         val enteringRecording = compose.onNodeWithTag(RecordingTag).getUnclippedBoundsInRoot()
         val leavingList = compose.onNodeWithTag(ListTag).getUnclippedBoundsInRoot()
-        val maxParallax = (host.right - host.left) * 0.08f + 1.dp
         assertTrue(enteringRecording.left > host.left && enteringRecording.left < host.right)
-        assertTrue(leavingList.left < host.left && leavingList.left >= host.left - maxParallax)
-        assertFrame(ListColor, RecordingColor, expectShadow = true)
+        assertEquals(enteringRecording.left, leavingList.right)
+        assertFrame(ListColor, RecordingColor)
 
         compose.mainClock.advanceTimeBy(400)
         compose.onNodeWithTag(ListTag).assertDoesNotExist()
@@ -80,8 +79,8 @@ class NavigationMotionTest {
         val leavingRecording = compose.onNodeWithTag(RecordingTag).getUnclippedBoundsInRoot()
         assertTrue(enteringList.left < host.left && enteringList.right > host.left)
         assertTrue(leavingRecording.left > host.left && leavingRecording.left < host.right)
-        assertTrue(enteringList.right > leavingRecording.left)
-        assertFrame(ListColor, RecordingColor, expectShadow = true)
+        assertEquals(leavingRecording.left, enteringList.right)
+        assertFrame(ListColor, RecordingColor)
 
         compose.mainClock.advanceTimeBy(400)
         compose.onNodeWithTag(RecordingTag).assertDoesNotExist()
@@ -101,10 +100,9 @@ class NavigationMotionTest {
 
         val enteringList = compose.onNodeWithTag(ListTag).getUnclippedBoundsInRoot()
         val leavingWelcome = compose.onNodeWithTag(WelcomeTag).getUnclippedBoundsInRoot()
-        val maxParallax = (host.bottom - host.top) * 0.05f + 1.dp
         assertTrue(enteringList.top > host.top && enteringList.top < host.bottom)
-        assertTrue(leavingWelcome.top < host.top && leavingWelcome.top >= host.top - maxParallax)
-        assertFrame(WelcomeColor, ListColor, vertical = true, expectShadow = true)
+        assertEquals(enteringList.top, leavingWelcome.bottom)
+        assertFrame(WelcomeColor, ListColor, vertical = true)
 
         compose.mainClock.advanceTimeBy(480)
         compose.onNodeWithTag(WelcomeTag).assertDoesNotExist()
@@ -128,7 +126,7 @@ class NavigationMotionTest {
                 dispatcher.dispatchOnBackProgressed(BackEventCompat(80f, 0f, 0.4f, BackEventCompat.EDGE_LEFT))
             }
             compose.mainClock.advanceTimeBy(64)
-            assertFrame(ListColor, RecordingColor, expectShadow = true)
+            assertFrame(ListColor, RecordingColor)
         }
 
         startBackGesture()
@@ -178,6 +176,7 @@ class NavigationMotionTest {
         compose.onNodeWithTag(panelAction(WelcomeTag)).assertDoesNotExist()
         val changingHeight = assertPanel(ListTag, viewport.bottom)
         assertTrue(changingHeight > originalHeight)
+        assertEquals(viewport.right, compose.onNodeWithTag(SwitchTag).getUnclippedBoundsInRoot().right)
 
         compose.mainClock.advanceTimeBy(480)
         compose.onNodeWithTag(WelcomeTag).assertDoesNotExist()
@@ -188,6 +187,7 @@ class NavigationMotionTest {
         compose.mainClock.advanceTimeBy(80)
         compose.onNodeWithTag(panelAction(ListTag)).assertIsDisplayed()
         compose.onNodeWithTag(panelAction(RecordingTag)).assertDoesNotExist()
+        compose.onNodeWithTag(SwitchTag).assertDoesNotExist()
         val loadingPanel = compose.onNodeWithTag(NavigationPanelTag).getUnclippedBoundsInRoot()
         assertEquals(viewport.bottom, loadingPanel.bottom)
         assertEquals(listHeight, loadingPanel.bottom - loadingPanel.top)
@@ -288,10 +288,10 @@ class NavigationMotionTest {
                 OnWinNavHost(navController = controller, startDestination = start) {
                     composable<WelcomeDestination> { Screen(WelcomeTag, WelcomeColor) }
                     composable<RecordingsDestination> {
-                        Screen(ListTag, ListColor, Modifier.navigationEdgeShadow(atTop = true))
+                        Screen(ListTag, ListColor)
                     }
                     composable<ActiveRecordingDestination> {
-                        Screen(RecordingTag, RecordingColor, Modifier.navigationEdgeShadow())
+                        Screen(RecordingTag, RecordingColor)
                     }
                 }
             }
@@ -304,23 +304,19 @@ class NavigationMotionTest {
         near: Color,
         far: Color,
         vertical: Boolean = false,
-        expectShadow: Boolean = false,
     ) {
         val pixels = compose.onNodeWithTag(ViewportTag).captureToImage().toPixelMap()
         val length = if (vertical) pixels.height else pixels.width
         val span = if (vertical) pixels.width else pixels.height
-        var sawShadow = false
         for (line in listOf(0, span / 2, span - 1)) {
             fun pixel(index: Int) = if (vertical) pixels[line, index] else pixels[index, line]
             assertEquals(near, pixel(0))
             assertEquals(far, pixel(length - 1))
             for (index in 0 until length) {
                 val color = pixel(index)
-                assertTrue("Uncovered pixel at $index on line $line", color != UncoveredColor)
-                if (color != near && color != far) sawShadow = true
+                assertTrue("Unexpected pixel at $index on line $line", color == near || color == far)
             }
         }
-        assertEquals(expectShadow, sawShadow)
     }
 }
 
@@ -348,12 +344,16 @@ private fun ScreenWithPanel(
                 secondary = panelElement(tag) { Box(Modifier.fillMaxWidth().height(height).testTag(panelAction(tag))) },
             )
         },
+        anchoredContent = if (tag == ListTag) {
+            { Box(Modifier.size(20.dp).testTag(SwitchTag)) }
+        } else null,
     ) { Screen(tag, color) }
 }
 
 private fun panelAction(tag: String) = "$tag-action"
 
 private const val ViewportTag = "viewport"
+private const val SwitchTag = "recordings-switch"
 private const val WelcomeTag = "welcome"
 private const val ListTag = "recordings"
 private const val RecordingTag = "activeRecording"

@@ -10,7 +10,9 @@ import android.os.Looper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,7 +53,6 @@ internal fun rememberRecordingPlayback(file: File?): RecordingPlayback {
 
 internal data class RecordingPlaybackState(
     val durationMs: Long = 0,
-    val positionMs: Long = 0,
     val playing: Boolean = false,
     val preparing: Boolean = false,
     val focusUnavailable: Boolean = false,
@@ -63,6 +64,11 @@ internal data class RecordingPlaybackState(
 internal class RecordingPlayback(context: Context) {
     var state by mutableStateOf(RecordingPlaybackState())
         private set
+    // Позиция обновляется каждый кадр и не должна тянуть за собой рекомпозицию всего дерева,
+    // поэтому вынесена из структурного state в отдельный MutableLongState.
+    private val position = mutableLongStateOf(0L)
+    val positionState: State<Long> get() = position
+    val positionMs: Long get() = position.longValue
 
     private val audioManager = checkNotNull(context.getSystemService(AudioManager::class.java))
     private val attributes = AudioAttributes.Builder()
@@ -109,10 +115,8 @@ internal class RecordingPlayback(context: Context) {
             if (player === media) {
                 playAfterSeek = false
                 abandonFocus()
-                state = state.copy(
-                    playing = false,
-                    positionMs = if (seekingTo == null) state.durationMs else state.positionMs,
-                )
+                state = state.copy(playing = false)
+                if (seekingTo == null) position.longValue = state.durationMs
             }
         }
         media.setOnErrorListener { _, _, _ ->
@@ -138,7 +142,7 @@ internal class RecordingPlayback(context: Context) {
         if (!state.ready) return
         if (state.playing || playAfterSeek) {
             pause()
-        } else if (state.positionMs == state.durationMs) {
+        } else if (position.longValue == state.durationMs) {
             playAfterSeek = true
             seekTo(0)
         } else if (seekingTo != null) {
@@ -152,23 +156,23 @@ internal class RecordingPlayback(context: Context) {
         val media = player ?: return
         if (!state.ready) return
         val targetMs = positionMs.coerceIn(0, state.durationMs)
-        state = state.copy(positionMs = targetMs)
+        position.longValue = targetMs
         resetPositionAnchor(targetMs)
         if (seekingTo == null) requestSeek(media)
     }
 
     private fun requestSeek(media: MediaPlayer) = control {
-        seekingTo = state.positionMs
-        media.seekTo(state.positionMs, MediaPlayer.SEEK_CLOSEST)
+        seekingTo = position.longValue
+        media.seekTo(position.longValue, MediaPlayer.SEEK_CLOSEST)
     }
 
     private fun completeSeek(media: MediaPlayer) {
         val completedPosition = seekingTo ?: return
         seekingTo = null
-        if (state.positionMs != completedPosition) {
+        if (position.longValue != completedPosition) {
             requestSeek(media)
         } else {
-            resetPositionAnchor(state.positionMs)
+            resetPositionAnchor(position.longValue)
             if (playAfterSeek) {
                 playAfterSeek = false
                 play(media)
@@ -179,7 +183,7 @@ internal class RecordingPlayback(context: Context) {
     private fun play(media: MediaPlayer) = control {
         hasFocus = audioManager.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         if (hasFocus) {
-            resetPositionAnchor(state.positionMs)
+            resetPositionAnchor(position.longValue)
             media.start()
             state = state.copy(playing = true, focusUnavailable = false)
         } else {
@@ -211,7 +215,7 @@ internal class RecordingPlayback(context: Context) {
             val interpolated = (lastRawPositionMs + (now - lastRawPositionTimeMs).coerceIn(0L, 150L))
                 .coerceIn(0L, state.durationMs)
             // maxOf гарантирует, что ползунок никогда не дернется назад из-за погрешности буфера
-            state = state.copy(positionMs = maxOf(state.positionMs, interpolated))
+            position.longValue = maxOf(position.longValue, interpolated)
         }
     }
 
@@ -223,6 +227,7 @@ internal class RecordingPlayback(context: Context) {
         seekingTo = null
         playAfterSeek = false
         resetPositionAnchor(0L)
+        position.longValue = 0L
         state = RecordingPlaybackState()
     }
 

@@ -33,7 +33,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -98,6 +100,7 @@ internal fun ActiveRecordingScreen(
     onCancel: () -> Unit,
     onRenameSpeaker: (Int) -> Unit,
     playback: RecordingPlaybackState = RecordingPlaybackState(),
+    playbackPosition: State<Long> = mutableLongStateOf(0L),
     onTogglePlayback: () -> Unit = {},
     onSeekPlayback: (Long) -> Unit = {},
     onRetry: () -> Unit = {},
@@ -113,7 +116,8 @@ internal fun ActiveRecordingScreen(
         }
         status == SessionStatus.DONE -> { viewport ->
             recordingPlaybackPanelContent(
-                viewport.isCompact, playback, elapsedMs, onTogglePlayback, onSeekPlayback, sessionId = detail.session.id,
+                viewport.isCompact, playback, playbackPosition, elapsedMs, onTogglePlayback, onSeekPlayback,
+                sessionId = detail.session.id,
             )
         }
         detail?.session?.canRetry == true -> { _ ->

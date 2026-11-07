@@ -45,7 +45,7 @@ internal fun RecordingsList(
     val visibleSessions = if (expanded) state.sessions else state.sessions.take(PreviewRecordingCount)
     val bottomPadding = if (hasToggle) ToggleInset else 0.dp
     val density = LocalDensity.current
-    val lastVisibleRow by remember(listState) {
+    val lastVisibleRow = remember(listState) {
         derivedStateOf {
             val layout = listState.layoutInfo
             val bottomEdge = layout.viewportEndOffset
@@ -76,12 +76,16 @@ internal fun RecordingsList(
             itemsIndexed(visibleSessions, key = { _, item -> item.session.id }) { index, item ->
                 val session = item.session
                 val live = state.processing.recording?.takeIf { it.sessionId == session.id }
-                val blurFraction = if (expanded) {
-                    lastVisibleRow?.takeIf { it.first == session.id }?.second ?: 0f
-                } else if (hasToggle && index == PreviewRecordingCount - 1) {
-                    1f
-                } else {
-                    0f
+                val blurFraction: () -> Float = remember(listState, session.id, expanded, hasToggle, index) {
+                    {
+                        if (expanded) {
+                            lastVisibleRow.value?.takeIf { it.first == session.id }?.second ?: 0f
+                        } else if (hasToggle && index == PreviewRecordingCount - 1) {
+                            1f
+                        } else {
+                            0f
+                        }
+                    }
                 }
                 RecordingCard(
                     session = session,

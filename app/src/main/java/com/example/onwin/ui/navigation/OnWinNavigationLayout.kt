@@ -46,12 +46,18 @@ internal data class NavigationPanel(
     val loading: Boolean,
     val dimmed: Boolean,
     val content: NavigationPanelContent?,
+    val anchoredContent: (@Composable () -> Unit)?,
 )
 
 internal class NavigationPanelSlot(private val panels: NavigationPanels, private val entryId: String) {
     @Composable
-    fun Publish(loading: Boolean, dimmed: Boolean, content: NavigationPanelContent?) {
-        val latest = key(panels, entryId) { rememberUpdatedState(NavigationPanel(loading, dimmed, content)) }
+    fun Publish(
+        loading: Boolean,
+        dimmed: Boolean,
+        content: NavigationPanelContent?,
+        anchoredContent: (@Composable () -> Unit)? = null,
+    ) {
+        val latest = key(panels, entryId) { rememberUpdatedState(NavigationPanel(loading, dimmed, content, anchoredContent)) }
         SideEffect {
             panels.entries[entryId] = latest
         }
@@ -73,8 +79,13 @@ internal fun OnWinNavigationLayout(
         val viewport = DpSize(maxWidth, maxHeight)
         CompositionLocalProvider(LocalNavigationViewport provides viewport) {
             Column(Modifier.fillMaxSize()) {
-                content(Modifier.weight(1f))
                 val panel = activeEntryId?.let(panels.entries::get)?.value
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    content(Modifier.fillMaxSize())
+                    Box(Modifier.align(Alignment.BottomEnd)) {
+                        panel?.anchoredContent?.invoke()
+                    }
+                }
                 var lastReady by remember { mutableStateOf(ReadyPanel(null, NavigationPanelContent())) }
                 val displayed = if (panel != null && !panel.loading) {
                     ReadyPanel(activeEntryId, panel.content ?: NavigationPanelContent())
@@ -102,12 +113,13 @@ internal fun OnWinScreenLayout(
     loading: Boolean = false,
     dimmed: Boolean = false,
     panel: (@Composable (DpSize) -> NavigationPanelContent)?,
+    anchoredContent: (@Composable () -> Unit)? = null,
     content: @Composable (DpSize) -> Unit,
 ) {
     val backdrop = if (dimmed) Modifier.onWinDialogBackdrop() else Modifier
     if (slot != null) {
         val viewport = checkNotNull(LocalNavigationViewport.current)
-        slot.Publish(loading, dimmed, panel?.invoke(viewport))
+        slot.Publish(loading, dimmed, panel?.invoke(viewport), anchoredContent)
         // Корневой OnWinNavigationLayout уже рисует атмосферу на весь экран,
         // повторная заливка здесь — лишний полноэкранный overdraw.
         Box(modifier.fillMaxSize().then(backdrop)) { content(viewport) }
@@ -115,7 +127,12 @@ internal fun OnWinScreenLayout(
         BoxWithConstraints(modifier.fillMaxSize().then(backdrop).onWinAtmosphere()) {
             val viewport = DpSize(maxWidth, maxHeight)
             Column(Modifier.fillMaxSize()) {
-                Box(Modifier.weight(1f).fillMaxWidth()) { content(viewport) }
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    content(viewport)
+                    Box(Modifier.align(Alignment.BottomEnd)) {
+                        anchoredContent?.invoke()
+                    }
+                }
                 if (panel != null) OnWinPanelSurface {
                     NavigationPanelContents(panel(viewport), owner = null, enabled = !loading)
                 }

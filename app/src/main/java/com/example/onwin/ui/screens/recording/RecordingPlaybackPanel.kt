@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,12 +55,13 @@ import kotlin.math.roundToLong
 internal fun RecordingPlaybackPanel(
     compact: Boolean,
     playback: RecordingPlaybackState,
+    position: State<Long>,
     recordingDurationMs: Long,
     onTogglePlayback: () -> Unit,
     onSeekPlayback: (Long) -> Unit,
 ) {
     OnWinPanelSurface(Modifier.padding(top = 22.dp)) {
-        RecordingPlaybackContent(compact, playback, recordingDurationMs, onTogglePlayback, onSeekPlayback)
+        RecordingPlaybackContent(compact, playback, position, recordingDurationMs, onTogglePlayback, onSeekPlayback)
     }
 }
 
@@ -67,12 +69,13 @@ internal fun RecordingPlaybackPanel(
 internal fun RecordingPlaybackContent(
     compact: Boolean,
     playback: RecordingPlaybackState,
+    position: State<Long>,
     recordingDurationMs: Long,
     onTogglePlayback: () -> Unit,
     onSeekPlayback: (Long) -> Unit,
 ) {
     NavigationPanelContents(
-        recordingPlaybackPanelContent(compact, playback, recordingDurationMs, onTogglePlayback, onSeekPlayback),
+        recordingPlaybackPanelContent(compact, playback, position, recordingDurationMs, onTogglePlayback, onSeekPlayback),
         owner = null,
         enabled = true,
     )
@@ -82,6 +85,7 @@ internal fun RecordingPlaybackContent(
 internal fun recordingPlaybackPanelContent(
     compact: Boolean,
     playback: RecordingPlaybackState,
+    position: State<Long>,
     recordingDurationMs: Long,
     onTogglePlayback: () -> Unit,
     onSeekPlayback: (Long) -> Unit,
@@ -101,7 +105,7 @@ internal fun recordingPlaybackPanelContent(
     supporting = panelElement(listOf(R.string.playback_timeline, sessionId)) { interactive ->
         Column(Modifier.padding(bottom = 25.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             PlaybackTimeline(
-                playback = playback,
+                position = position,
                 durationMs = playback.durationMs.takeIf { it > 0 } ?: recordingDurationMs,
                 onSeek = onSeekPlayback,
                 enabled = interactive,
@@ -145,19 +149,20 @@ internal fun recordingPlaybackPanelContent(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlaybackTimeline(
-    playback: RecordingPlaybackState,
+    position: State<Long>,
     durationMs: Long,
     onSeek: (Long) -> Unit,
     enabled: Boolean = true,
 ) {
-    var draggedFraction by remember(playback.ready, durationMs) { mutableStateOf<Float?>(null) }
+    var draggedFraction by remember(durationMs) { mutableStateOf<Float?>(null) }
+    val currentPosition = position.value
     val playbackFraction = if (durationMs > 0) {
-        (playback.positionMs.toDouble() / durationMs).toFloat().coerceIn(0f, 1f)
+        (currentPosition.toDouble() / durationMs).toFloat().coerceIn(0f, 1f)
     } else {
         0f
     }
     val fraction = draggedFraction ?: playbackFraction
-    val positionMs = draggedFraction?.let { (durationMs.toDouble() * it).roundToLong() } ?: playback.positionMs
+    val positionMs = draggedFraction?.let { (durationMs.toDouble() * it).roundToLong() } ?: currentPosition
     val timelineLabel = stringResource(R.string.playback_timeline)
     Slider(
         value = fraction,
@@ -170,7 +175,7 @@ private fun PlaybackTimeline(
         },
         modifier = Modifier.fillMaxWidth().height(30.dp).padding(horizontal = 2.dp)
             .semantics { contentDescription = timelineLabel },
-        enabled = playback.ready && enabled,
+        enabled = durationMs > 0 && enabled,
         thumb = {
             Box(
                 Modifier.size(12.dp).background(PlaybackThumbColor, CircleShape)
