@@ -1,8 +1,8 @@
 package com.example.llm
 
 import android.content.Context
+import com.example.speech.api.ProtocolAnalyzer
 import com.example.speech.api.TextCorrector
-import com.example.speech.api.TranscriptAnalyzer
 import com.example.speech.impl.CompositeCorrector
 import com.example.speech.impl.LexiconCorrector
 import com.example.speech.impl.LlmCorrector
@@ -21,8 +21,11 @@ import java.io.File
  */
 class OnDeviceLlm private constructor(
     val corrector: TextCorrector,
-    val analyzer: TranscriptAnalyzer,
+    val analyzer: LlmDialogueAnalyzer,
 ) {
+
+    /** Протокол идёт через тот же анализатор и генератор, что и резюме. */
+    val protocolAnalyzer: ProtocolAnalyzer get() = analyzer
 
     companion object {
         /** Каталог с моделью внутри filesDir приложения. */
