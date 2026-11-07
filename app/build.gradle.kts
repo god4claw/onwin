@@ -27,7 +27,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         if (providers.gradleProperty("longAudioTests").orNull != "true") {
-            testInstrumentationRunnerArguments["notClass"] = "com.example.private_onwin.audio.LongInputTest"
+            testInstrumentationRunnerArguments["notClass"] = "com.example.onwin.data.audio.LongInputTest"
         }
     }
 
