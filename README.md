@@ -66,4 +66,8 @@ VAD в шуме: порог Silero 0,35, сравнение с TEN VAD, пров
 
 Метки времени слов: спикеры по словам, границы реплик, склейка ложных разрезов: [`docs/bench-word-timestamps.md`](docs/bench-word-timestamps.md).
 
+ERes2Net вместо CAM++ для спикеров, набор живых диалогов: [`docs/bench-eres2net.md`](docs/bench-eres2net.md).
+
+Где пайплайн теряет слова: ASR по всему VAD-чанку, разрез длинных сегментов в тишине: [`docs/bench-asr-edges.md`](docs/bench-asr-edges.md).
+
 Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.

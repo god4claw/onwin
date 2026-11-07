@@ -2,7 +2,9 @@
 
 Speaker-agnostic: hypothesis segments are joined in time order, reference
 turns too. Both sides are normalized the same way: lower case, ё -> е,
-everything except letters and digits becomes a space. Numbers are compared
+everything except letters and digits becomes a space, Latin look-alikes
+inside Russian words become Cyrillic (some Dialogs references type "зpения"
+with a Latin p). Numbers are compared
 as written, so "5" vs "пять" counts as an error; keep that in mind on
 references with spelled-out numbers.
 
@@ -20,11 +22,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _NON_WORD = re.compile(r"[^0-9a-zа-я]+")
+_CYRILLIC = re.compile(r"[а-я]")
+_HOMOGLYPHS = str.maketrans("aeopcxykmhbt", "аеорсхукмнвт")
 
 
 def normalize(text: str) -> list[str]:
     text = text.lower().replace("ё", "е")
-    return _NON_WORD.sub(" ", text).split()
+    words = _NON_WORD.sub(" ", text).split()
+    return [w.translate(_HOMOGLYPHS) if _CYRILLIC.search(w) else w for w in words]
 
 
 @dataclass(frozen=True)

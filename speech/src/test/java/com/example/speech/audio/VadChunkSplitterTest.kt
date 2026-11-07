@@ -1,6 +1,7 @@
 package com.example.speech.audio
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VadChunkSplitterTest {
@@ -35,8 +36,30 @@ class VadChunkSplitterTest {
         assertEquals(listOf(10, 10), chunks.map { it.samples.size })
     }
 
+    @Test
+    fun `long segment is cut in the quietest window before the limit, not at the limit`() {
+        // 60 с речи, паузы 200 мс на 20 и 41 с: лимит 25 с, поиск в последних 10 с.
+        val samples = FloatArray(60 * SR) { 0.3f }.also { audio ->
+            for (i in (20.0 * SR).toInt() until (20.2 * SR).toInt()) audio[i] = 0f
+            for (i in (41.0 * SR).toInt() until (41.2 * SR).toInt()) audio[i] = 0f
+        }
+
+        val chunks = splitLongVadSegment(startSample = 0L, samples = samples, maxSamples = 25 * SR)
+
+        assertEquals(3, chunks.size)
+        val cuts = chunks.drop(1).map { it.startSample }
+        assertTrue("cuts at $cuts", cuts[0] in (20.0 * SR).toLong()..(20.2 * SR).toLong())
+        assertTrue("cuts at $cuts", cuts[1] in (41.0 * SR).toLong()..(41.2 * SR).toLong())
+        assertTrue(chunks.all { it.samples.size <= 25 * SR })
+        assertEquals(samples.size, chunks.sumOf { it.samples.size })
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `zero max samples is rejected`() {
         splitLongVadSegment(startSample = 0L, samples = FloatArray(1), maxSamples = 0)
+    }
+
+    private companion object {
+        const val SR = 16_000
     }
 }

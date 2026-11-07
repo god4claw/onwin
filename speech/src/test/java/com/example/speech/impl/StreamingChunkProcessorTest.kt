@@ -34,7 +34,7 @@ class StreamingChunkProcessorTest {
     }
 
     @Test
-    fun `voice change cuts in the pause and each piece is recognized on its own`() {
+    fun `voice change splits the words of one recognition, the audio is not cut for ASR`() {
         // 0–2,3 с первый голос, тишина 2,3–2,5 с, дальше второй.
         val samples = FloatArray(48 * SR / 10) {
             when {
@@ -47,26 +47,87 @@ class StreamingChunkProcessorTest {
         val processor = processor(
             words = { audio ->
                 recognized += audio.size
-                if (audio.average() > 0) {
-                    listOf(word("добрый", 0.2, 0.8), word("день", 0.9, 1.5), word("коллеги", 1.6, 2.2))
-                } else {
-                    listOf(word("здравствуйте", 0.3, 1.0), word("рады", 1.1, 1.6), word("видеть", 1.7, 2.2))
+                when {
+                    audio.size == samples.size -> listOf(
+                        word("добрый", 0.2, 0.8), word("день", 0.9, 1.5), word("коллеги", 1.6, 2.4),
+                        word("здравствуйте", 2.8, 3.5), word("рады", 3.6, 4.1), word("видеть", 4.2, 4.7),
+                    )
+                    // Куски по отдельности: столько же слов, но обломки на стыке.
+                    audio.average() > 0 -> listOf(word("добрый", 0.2, 0.8), word("день", 0.9, 1.5), word("колле", 1.6, 2.2))
+                    else -> listOf(word("ствуйте", 0.0, 0.5), word("рады", 1.1, 1.6), word("видеть", 1.7, 2.2))
                 }
             },
-            splitter = SpeakerChangeSplitter(SpeakerChangeConfig(windowMs = 800, hopMs = 400, minSegmentMs = 600, threshold = 0.5f)),
+            splitter = twoVoiceSplitter(),
+        ) { window -> if (window.average() > 0) floatArrayOf(1f, 0f) else floatArrayOf(0f, 1f) }
+
+        val segments = processor.process(SpeechChunk(0L, samples))
+
+        // Текст — из распознавания целого чанка: разрез по смене говорящего не ломает слова.
+        assertEquals(listOf("добрый день коллеги", "здравствуйте рады видеть"), segments.map { it.text })
+        assertEquals(listOf(0, 1), segments.map { it.speaker })
+        assertEquals(samples.size, recognized.first())
+        // Начало — на 0,1 с раньше первого токена; конец не заходит за разрез в тишине 2,3–2,5 с.
+        assertEquals(100L, segments[0].startMs)
+        assertTrue("end ${segments[0].endMs}", segments[0].endMs in 2_300L..2_400L)
+        assertEquals(2_700L, segments[1].startMs)
+    }
+
+    @Test
+    fun `pieces are recognized separately when the whole chunk collapses on overlapping voices`() {
+        val samples = twoVoiceSamples()
+        val recognized = ArrayList<Int>()
+        val processor = processor(
+            words = { audio ->
+                recognized += audio.size
+                when {
+                    audio.size == samples.size -> listOf(word("обрывок", 0.2, 0.8))
+                    audio.average() > 0 -> listOf(word("добрый", 0.2, 0.8), word("день", 0.9, 1.5), word("коллеги", 1.6, 2.2))
+                    else -> listOf(word("здравствуйте", 0.3, 1.0), word("рады", 1.1, 1.6), word("видеть", 1.7, 2.2))
+                }
+            },
+            splitter = twoVoiceSplitter(),
         ) { window -> if (window.average() > 0) floatArrayOf(1f, 0f) else floatArrayOf(0f, 1f) }
 
         val segments = processor.process(SpeechChunk(0L, samples))
 
         assertEquals(listOf("добрый день коллеги", "здравствуйте рады видеть"), segments.map { it.text })
         assertEquals(listOf(0, 1), segments.map { it.speaker })
-        // Чанк не распознаётся целиком: только два куска, разрез — в тишине 2,3–2,5 с.
-        assertEquals(2, recognized.size)
-        assertTrue("cut at ${recognized[0]}", recognized[0] in (23 * SR / 10)..(25 * SR / 10))
-        // Границы реплик — по словам куска (с упреждением 0,1 с на начало).
-        assertEquals(100L, segments[0].startMs)
-        assertEquals(2_200L, segments[0].endMs)
+        assertEquals(3, recognized.size)
+        // Слова второго куска пересчитаны от начала чанка: кусок начинается с разреза в тишине.
+        assertTrue("start ${segments[1].startMs}", segments[1].startMs in 2_500L..2_900L)
     }
+
+    @Test
+    fun `dense whole-chunk recognition is trusted without a second pass`() {
+        val samples = twoVoiceSamples()
+        val recognized = ArrayList<Int>()
+        // 12 слов за 4,8 с — 2,5 слова/с, выше порога разреженности.
+        val texts = listOf("раз", "два", "три", "четыре", "пять", "шесть", "семь", "восемь", "девять", "десять", "одиннадцать", "двенадцать")
+        val processor = processor(
+            words = { audio ->
+                recognized += audio.size
+                texts.mapIndexed { i, text -> word(text, 0.1 + i * 0.38, 0.4 + i * 0.38) }
+            },
+            splitter = twoVoiceSplitter(),
+        ) { window -> if (window.average() > 0) floatArrayOf(1f, 0f) else floatArrayOf(0f, 1f) }
+
+        val segments = processor.process(SpeechChunk(0L, samples))
+
+        assertEquals(listOf(samples.size), recognized)
+        assertEquals(texts.joinToString(" "), segments.joinToString(" ") { it.text })
+        assertEquals(2, segments.size)
+    }
+
+    private fun twoVoiceSamples() = FloatArray(48 * SR / 10) {
+        when {
+            it < 23 * SR / 10 -> 0.5f
+            it < 25 * SR / 10 -> 0f
+            else -> -0.5f
+        }
+    }
+
+    private fun twoVoiceSplitter() =
+        SpeakerChangeSplitter(SpeakerChangeConfig(windowMs = 800, hopMs = 400, minSegmentMs = 600, threshold = 0.5f))
 
     @Test
     fun `records keep embedding and chunk index for final re-clustering`() {
