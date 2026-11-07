@@ -3,6 +3,9 @@ package com.example.onwin.data.audio
 import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.domain.processing.MicrophoneRecorder
 import com.example.onwin.domain.processing.RecordingException
+import java.io.Closeable
+import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Deferred
@@ -11,9 +14,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import java.io.Closeable
-import java.io.File
-import java.io.IOException
 
 /** Nonblocking PCM16 input. All methods are called on the capture coroutine, including close. */
 internal interface PcmCapture : Closeable {
@@ -30,13 +30,13 @@ internal fun interface PcmCaptureFactory {
 /** Bounded buffers; cancellation/Stop is observed at least every polling interval. */
 internal class WavMicrophoneRecorder(
     private val factory: PcmCaptureFactory,
-    private val dispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : MicrophoneRecorder {
     override suspend fun record(
         partFile: File,
         stop: Deferred<Unit>,
         onStarted: () -> Unit,
-        onDuration: (Long) -> Unit
+        onDuration: (Long) -> Unit,
     ): Long = withContext(dispatcher) {
         var completed = false
         try {
@@ -48,12 +48,8 @@ internal class WavMicrophoneRecorder(
                 WavWriter(partFile).use { writer ->
                     val samples = ShortArray(4096)
                     val floats = FloatArray(samples.size)
-                    val resampler = if (input.sampleRate == TARGET_SAMPLE_RATE) null else StreamingResampler(
-                        input.sampleRate
-                    )
-                    val sink = FloatSink { data, offset, length ->
-                        writer.writeFloats(data, offset, length)
-                    }
+                    val resampler = if (input.sampleRate == TARGET_SAMPLE_RATE) null else StreamingResampler(input.sampleRate)
+                    val sink = FloatSink { data, offset, length -> writer.writeFloats(data, offset, length) }
                     input.start()
                     onStarted()
                     var lastReported = -1L
@@ -101,3 +97,4 @@ internal class WavMicrophoneRecorder(
         }
     }
 }
+

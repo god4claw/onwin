@@ -15,11 +15,7 @@ internal fun interface FloatSink {
      * Принимает [length] сэмплов из [samples], начиная с [offset].
      * Массив переиспользуется отправителем: данные нужно скопировать, если их надо хранить.
      */
-    fun write(
-        samples: FloatArray,
-        offset: Int,
-        length: Int
-    )
+    fun write(samples: FloatArray, offset: Int, length: Int)
 }
 
 /**
@@ -48,7 +44,7 @@ internal fun interface FloatSink {
  */
 internal class StreamingResampler(
     val inputRate: Int,
-    val outputRate: Int = TARGET_SAMPLE_RATE
+    val outputRate: Int = TARGET_SAMPLE_RATE,
 ) {
     private val bypass = inputRate == outputRate
 
@@ -109,12 +105,7 @@ internal class StreamingResampler(
      * Ресемплирует [length] сэмплов из [input], начиная с [offset]; результат уходит в [sink]
      * (возможно, частями и с задержкой до следующего вызова или [flush]).
      */
-    fun process(
-        input: FloatArray,
-        offset: Int,
-        length: Int,
-        sink: FloatSink
-    ) {
+    fun process(input: FloatArray, offset: Int, length: Int, sink: FloatSink) {
         check(!flushed) { "Resampler is already flushed" }
         require(offset >= 0 && length >= 0 && offset + length <= input.size) { "Bad range: $offset+$length" }
         inputCount += length
@@ -161,10 +152,7 @@ internal class StreamingResampler(
             "interpolated=$interpolated)"
     }
 
-    private fun produce(
-        sink: FloatSink,
-        limit: Long
-    ) {
+    private fun produce(sink: FloatSink, limit: Long) {
         while (outputCount < limit && readIndex + taps <= bufferLength) {
             output[outputLength++] = computeSample()
             outputCount++
@@ -185,10 +173,7 @@ internal class StreamingResampler(
         return a + (b - a) * weight
     }
 
-    private fun dot(
-        rowOffset: Int,
-        bufferOffset: Int
-    ): Float {
+    private fun dot(rowOffset: Int, bufferOffset: Int): Float {
         val table = table
         val buffer = buffer
         var s0 = 0f
@@ -254,12 +239,7 @@ internal class StreamingResampler(
         const val INPUT_BLOCK = 4096
         const val OUTPUT_BLOCK = 4096
 
-        fun windowedSinc(
-            x: Double,
-            cutoff: Double,
-            half: Int,
-            windowNorm: Double
-        ): Double {
+        fun windowedSinc(x: Double, cutoff: Double, half: Int, windowNorm: Double): Double {
             val r = x / half
             if (abs(r) > 1.0) return 0.0
             val sinc = if (x == 0.0) 2 * cutoff else sin(2 * PI * cutoff * x) / (PI * x)
@@ -280,14 +260,8 @@ internal class StreamingResampler(
             return sum
         }
 
-        tailrec fun gcd(
-            a: Int,
-            b: Int
-        ): Int = if (b == 0) a else gcd(b, a % b)
+        tailrec fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
 
-        fun ceilDiv(
-            a: Long,
-            b: Long
-        ): Long = (a + b - 1) / b
+        fun ceilDiv(a: Long, b: Long): Long = (a + b - 1) / b
     }
 }

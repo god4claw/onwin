@@ -5,9 +5,10 @@ import java.io.File
 
 /**
  * Входной этап обработки: доступ к исходнику и конвертация в WAV.
- * Источник — строка URI, чтобы контроллер тестировался на JVM без `android.net.Uri`.
+ * Источник — строка URI, чтобы логику контроллера можно было проверять на JVM без `android.net.Uri`.
  */
 interface AudioToWav {
+
     /** Имя файла для показа; `null`, если провайдер его не сообщил. */
     suspend fun displayName(source: String): String?
 
@@ -21,22 +22,11 @@ interface AudioToWav {
      * Конвертирует [source] в WAV 16 кГц моно PCM16 в папке записей.
      *
      * @param onProgress 0..1, из фонового потока.
-     * @throws ImportConversionException если сконвертировать не удалось.
+     * @throws ImportConversionException если файл не удалось сконвертировать.
      */
-    suspend fun convert(
-        source: String,
-        onProgress: (Float) -> Unit
-    ): ConvertedWav
+    suspend fun convert(source: String, onProgress: (Float) -> Unit): ConvertedWav
 }
 
-/** Готовый WAV и его длительность. */
-data class ConvertedWav(
-    val file: File,
-    val durationMs: Long
-)
+data class ConvertedWav(val file: File, val durationMs: Long)
 
-/** Конвертация не удалась; [code] — причина для UI. */
-class ImportConversionException(
-    val code: ErrorCode,
-    override val cause: Throwable
-) : Exception(cause)
+class ImportConversionException(val code: ErrorCode, override val cause: Throwable) : Exception(cause)

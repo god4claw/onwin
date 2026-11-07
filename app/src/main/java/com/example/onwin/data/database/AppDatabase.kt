@@ -10,13 +10,15 @@ import com.example.onwin.data.database.entity.SegmentEntity
 import com.example.onwin.data.database.entity.SessionEntity
 import com.example.onwin.data.database.entity.SpeakerNameEntity
 
+/** БД приложения. Схема каждой версии лежит в `app/schemas`. */
 @Database(
     entities = [SessionEntity::class, SegmentEntity::class, SpeakerNameEntity::class],
     version = 1,
-    exportSchema = true
+    exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
+
     /** DAO сессий. */
     abstract fun sessionDao(): SessionDao
 

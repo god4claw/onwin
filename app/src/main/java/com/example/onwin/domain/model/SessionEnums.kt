@@ -5,7 +5,7 @@ package com.example.onwin.domain.model
  * но не переименовывать.
  */
 enum class SessionStatus {
-    /** Запись с микрофона или её завершение. */
+    /** Microphone capture or finalization. */
     RECORDING,
 
     /** Ждёт своей очереди. */
@@ -46,7 +46,7 @@ enum class SessionSource {
     IMPORT,
 
     /** Запись с микрофона. */
-    MIC
+    MIC,
 }
 
 /** Причина ошибки сессии. Хранится в БД по имени; текст для пользователя подбирает UI. */
@@ -55,7 +55,7 @@ enum class ErrorCode {
     MICROPHONE_PERMISSION_DENIED,
     EMPTY_RECORDING,
 
-    /** Процесс убит или истёк лимит foreground-сервиса; можно повторить. */
+    /** Обработку оборвали: процесс убит или истёк лимит foreground-сервиса. Можно повторить. */
     INTERRUPTED,
 
     /** Источник не открылся или не поддерживает перемотку. */
@@ -83,5 +83,5 @@ enum class ErrorCode {
     TRANSCRIPTION_FAILED,
 
     /** Всё остальное. */
-    UNKNOWN
+    UNKNOWN,
 }

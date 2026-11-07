@@ -10,10 +10,7 @@ import java.nio.ByteOrder
  * @property androidEncoding соответствующая константа `android.media.AudioFormat.ENCODING_*`.
  *   Значения продублированы числами, чтобы этот файл оставался чистым Kotlin и тестировался на JVM.
  */
-internal enum class PcmEncoding(
-    val bytesPerSample: Int,
-    val androidEncoding: Int
-) {
+internal enum class PcmEncoding(val bytesPerSample: Int, val androidEncoding: Int) {
     /** Беззнаковые 8 бит. */
     PCM_8BIT(1, 3),
 
@@ -44,10 +41,8 @@ internal enum class PcmEncoding(
  * @property encoding кодировка сэмплов.
  * @property channelCount число чередующихся каналов.
  */
-internal class PcmFormat(
-    val encoding: PcmEncoding,
-    val channelCount: Int
-) {
+internal class PcmFormat(val encoding: PcmEncoding, val channelCount: Int) {
+
     init {
         require(channelCount > 0) { "channelCount must be positive: $channelCount" }
     }
@@ -68,10 +63,7 @@ internal class PcmFormat(
      *
      * @return число записанных в [dst] сэмплов.
      */
-    fun toMono(
-        src: ByteBuffer,
-        dst: FloatArray
-    ): Int {
+    fun toMono(src: ByteBuffer, dst: FloatArray): Int {
         src.order(ByteOrder.LITTLE_ENDIAN)
         val frames = frameCount(src.remaining())
         require(dst.size >= frames) { "dst is too small: ${dst.size} < $frames" }
@@ -89,10 +81,7 @@ internal class PcmFormat(
         return frames
     }
 
-    private fun readSample(
-        src: ByteBuffer,
-        index: Int
-    ): Float = when (encoding) {
+    private fun readSample(src: ByteBuffer, index: Int): Float = when (encoding) {
         PcmEncoding.PCM_8BIT -> ((src.get(index).toInt() and 0xFF) - 128) / 128f
         PcmEncoding.PCM_16BIT -> src.getShort(index) / 32_768f
         PcmEncoding.PCM_24BIT_PACKED -> {

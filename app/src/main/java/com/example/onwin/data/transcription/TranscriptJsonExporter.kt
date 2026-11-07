@@ -12,24 +12,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/**
- * Экспортер транскриптов сессий в формат JSON.
- *
- * Предоставляет возможность записи сегментов расшифровки [TranscriptSegment]
- * по указанному URI назначения (например, в файл через [android.content.ContentResolver]).
- *
- * @param context Контекст приложения, используемый для доступа к [android.content.ContentResolver].
- */
 class TranscriptJsonExporter @Inject constructor(@ApplicationContext context: Context) {
     private val resolver = context.contentResolver
 
-    /**
-     * Записывает список сегментов транскрипции [segments] в файл по URI [destination] в формате JSON.
-     *
-     * @param destination URI назначения для экспорта данных.
-     * @param segments Список сегментов расшифровки для записи.
-     * @throws IOException Если не удалось открыть поток записи по указанному URI.
-     */
     internal suspend fun write(destination: Uri, segments: List<TranscriptSegment>) =
         withContext(Dispatchers.IO) {
             val json = encodeTranscriptJson(segments)
@@ -39,15 +24,6 @@ class TranscriptJsonExporter @Inject constructor(@ApplicationContext context: Co
         }
 }
 
-/**
- * Преобразует список сегментов транскрипции [TranscriptSegment] в JSON-строку.
- *
- * Сегменты предварительно сортируются по их индексу [TranscriptSegment.index],
- * а идентификаторы спикеров форматируются как `speaker_N` (где N = speaker + 1).
- *
- * @param segments Список сегментов расшифровки.
- * @return Сформированная JSON-строка.
- */
 internal fun encodeTranscriptJson(segments: List<TranscriptSegment>): String =
     Json.encodeToString(
         JsonTranscript(segments.sortedBy { it.index }.map { segment ->
@@ -60,22 +36,9 @@ internal fun encodeTranscriptJson(segments: List<TranscriptSegment>): String =
         }),
     )
 
-/**
- * Модель верхнего уровня для сериализации транскрипта в JSON.
- *
- * @property transcript Список реплик (высказываний).
- */
 @Serializable
 private data class JsonTranscript(val transcript: List<JsonUtterance>)
 
-/**
- * Модель отдельной реплики (высказывания) для сериализации в JSON.
- *
- * @property speakerId Идентификатор спикера в формате `speaker_N`.
- * @property startMs Время начала реплики в миллисекундах.
- * @property endMs Время окончания реплики в миллисекундах.
- * @property text Текст реплики.
- */
 @Serializable
 private data class JsonUtterance(
     @SerialName("speaker_id") val speakerId: String,

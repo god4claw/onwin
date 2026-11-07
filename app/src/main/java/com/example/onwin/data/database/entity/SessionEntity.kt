@@ -24,8 +24,7 @@ import com.example.onwin.domain.model.SessionStatus
  */
 @Entity(tableName = "sessions")
 data class SessionEntity(
-    @PrimaryKey
-    val id: String,
+    @PrimaryKey val id: String,
     val title: String,
     val source: SessionSource,
     val originalName: String,
@@ -36,5 +35,5 @@ data class SessionEntity(
     val durationMs: Long? = null,
     val status: SessionStatus,
     val errorCode: ErrorCode? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
 )

@@ -30,8 +30,9 @@ class WavWriter internal constructor(
     file: File,
     val sampleRate: Int,
     val channelCount: Int,
-    private val maxDataBytes: Long
+    private val maxDataBytes: Long,
 ) : Closeable {
+
     /**
      * Создаёт [file] (перезаписывая существующий) и пишет в него заголовок-заглушку.
      *
@@ -42,7 +43,7 @@ class WavWriter internal constructor(
     constructor(
         file: File,
         sampleRate: Int = TARGET_SAMPLE_RATE,
-        channelCount: Int = 1
+        channelCount: Int = 1,
     ) : this(file, sampleRate, channelCount, MAX_DATA_BYTES)
 
     private val channel: FileChannel
@@ -79,11 +80,7 @@ class WavWriter internal constructor(
      *
      * @throws WavSizeLimitException если данные не поместятся в WAV.
      */
-    fun writeShorts(
-        samples: ShortArray,
-        offset: Int = 0,
-        length: Int = samples.size - offset
-    ) {
+    fun writeShorts(samples: ShortArray, offset: Int = 0, length: Int = samples.size - offset) {
         reserve(samples.size, offset, length)
         var index = offset
         val end = offset + length
@@ -100,11 +97,7 @@ class WavWriter internal constructor(
      *
      * @throws WavSizeLimitException если данные не поместятся в WAV.
      */
-    fun writeFloats(
-        samples: FloatArray,
-        offset: Int = 0,
-        length: Int = samples.size - offset
-    ) {
+    fun writeFloats(samples: FloatArray, offset: Int = 0, length: Int = samples.size - offset) {
         reserve(samples.size, offset, length)
         var index = offset
         val end = offset + length
@@ -128,11 +121,7 @@ class WavWriter internal constructor(
         }
     }
 
-    private fun reserve(
-        size: Int,
-        offset: Int,
-        length: Int
-    ) {
+    private fun reserve(size: Int, offset: Int, length: Int) {
         check(!closed) { "WavWriter is closed" }
         require(offset >= 0 && length >= 0 && offset + length <= size) { "Bad range: $offset+$length of $size" }
         val bytes = length.toLong() * BYTES_PER_SAMPLE
@@ -147,10 +136,7 @@ class WavWriter internal constructor(
     }
 
     /** Позиционная запись: позиция канала не меняется. */
-    private fun writeFully(
-        src: ByteBuffer,
-        position: Long
-    ) {
+    private fun writeFully(src: ByteBuffer, position: Long) {
         var offset = position
         while (src.hasRemaining()) offset += channel.write(src, offset)
     }
@@ -171,11 +157,7 @@ class WavWriter internal constructor(
             Math.round(value * 32_768f).coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
 
         /** Канонический 44-байтовый заголовок PCM16 WAV. */
-        internal fun wavHeader(
-            dataBytes: Long,
-            sampleRate: Int,
-            channelCount: Int
-        ): ByteBuffer {
+        internal fun wavHeader(dataBytes: Long, sampleRate: Int, channelCount: Int): ByteBuffer {
             val blockAlign = channelCount * BYTES_PER_SAMPLE
             return ByteBuffer.allocate(HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN).apply {
                 put("RIFF".toByteArray(Charsets.US_ASCII))
@@ -202,6 +184,5 @@ class WavWriter internal constructor(
  *
  * @property maxDataBytes допустимый максимум данных, байт.
  */
-class WavSizeLimitException(
-    val maxDataBytes: Long
-) : IOException("WAV data would exceed $maxDataBytes bytes (signed 32-bit RIFF size limit)")
+class WavSizeLimitException(val maxDataBytes: Long) :
+    IOException("WAV data would exceed $maxDataBytes bytes (signed 32-bit RIFF size limit)")

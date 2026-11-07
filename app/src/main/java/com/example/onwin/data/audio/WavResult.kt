@@ -12,7 +12,7 @@ import java.io.File
 data class WavResult(
     val file: File,
     val durationMs: Long,
-    val source: SourceInfo
+    val source: SourceInfo,
 )
 
 /**
@@ -28,5 +28,5 @@ data class SourceInfo(
     val mime: String,
     val sampleRate: Int,
     val channels: Int,
-    val pcmEncoding: Int
+    val pcmEncoding: Int,
 )

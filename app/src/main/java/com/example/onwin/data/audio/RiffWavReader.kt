@@ -20,9 +20,8 @@ import kotlin.math.min
  * @throws AudioConversionException.UnsupportedFormat если кодировка не поддерживается.
  * @throws IOException если это не WAV или заголовок повреждён.
  */
-internal class RiffWavReader(
-    private val input: InputStream
-) : Closeable {
+internal class RiffWavReader(private val input: InputStream) : Closeable {
+
     /** Частота дискретизации, Гц. */
     val sampleRate: Int
 
@@ -148,11 +147,7 @@ internal class RiffWavReader(
 
     private fun ByteBuffer.ascii(index: Int): String = String(array(), index, 4, Charsets.US_ASCII)
 
-    private class Fmt(
-        val sampleRate: Int,
-        val channelCount: Int,
-        val encoding: PcmEncoding
-    )
+    private class Fmt(val sampleRate: Int, val channelCount: Int, val encoding: PcmEncoding)
 
     private companion object {
         const val FORMAT_PCM = 1

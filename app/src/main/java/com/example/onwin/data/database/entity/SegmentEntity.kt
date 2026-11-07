@@ -21,9 +21,9 @@ import androidx.room.ForeignKey
             entity = SessionEntity::class,
             parentColumns = ["id"],
             childColumns = ["sessionId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ]
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
 )
 data class SegmentEntity(
     val sessionId: String,
@@ -31,5 +31,5 @@ data class SegmentEntity(
     val speaker: Int,
     val startMs: Long,
     val endMs: Long,
-    val text: String
+    val text: String,
 )

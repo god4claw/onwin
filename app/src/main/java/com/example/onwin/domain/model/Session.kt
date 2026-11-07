@@ -6,15 +6,15 @@ package com.example.onwin.domain.model
  * @property id UUID.
  * @property title имя выбранного файла без расширения.
  * @property source откуда взялась запись.
- * @property originalName имя исходного файла от провайдера.
- * @property sourceUri URI исходника для повторной конвертации после перезапуска процесса.
+ * @property originalName имя исходного файла, как его вернул провайдер.
+ * @property sourceUri URI исходника; нужен, чтобы повторить конвертацию после перезапуска процесса.
  * @property createdAt время создания, мс с эпохи.
  * @property updatedAt время последнего изменения строки, мс с эпохи.
  * @property wavFileName имя WAV в `filesDir/recordings`; заполняется после конвертации.
  * @property durationMs длительность WAV; заполняется вместе с [wavFileName].
  * @property status текущий статус.
  * @property errorCode причина ошибки для [SessionStatus.FAILED].
- * @property errorMessage техническое описание ошибки для логов и отладки.
+ * @property errorMessage техническое описание ошибки (для логов и отладки, не для пользователя).
  */
 data class Session(
     val id: String,
@@ -28,9 +28,9 @@ data class Session(
     val durationMs: Long? = null,
     val status: SessionStatus,
     val errorCode: ErrorCode? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
 ) {
-    /** Запись с микрофона нельзя повторить без сохранённого WAV. */
+    /** MIC capture cannot be retried without a committed original WAV. */
     val canRetry: Boolean
         get() = status.isRetryable && (source != SessionSource.MIC || wavFileName != null)
 }

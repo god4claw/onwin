@@ -21,14 +21,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
- * Реализация хранилища сессий [SessionRepository] на базе Room БД и файловой системы.
+ * [SessionRepository] поверх Room.
  *
- * Осуществляет управление метаданными сессий в локальной БД (через [SessionDao])
- * и связанными WAV-файлами аудиозаписей в каталоге [recordingsDir].
- *
- * @param dao DAO для работы с базой данных сессий.
- * @param recordingsDir Директория для хранения WAV-файлов записей (та же, куда пишет `AudioConverter`).
- * @param clock Источник времени для генерации отметок обновления `updatedAt`.
+ * @param dao DAO сессий.
+ * @param recordingsDir папка с WAV; та же, куда пишет `AudioConverter`.
+ * @param clock источник `updatedAt`.
  */
 class RoomSessionRepository(
     private val dao: SessionDao,
@@ -88,8 +85,7 @@ class RoomSessionRepository(
         val referenced = dao.wavFileNames().toSet()
         return withContext(Dispatchers.IO) {
             recordingsDir.listFiles().orEmpty().count { file ->
-                val orphan =
-                    file.name.endsWith(PART_SUFFIX) || (file.name.endsWith(WAV_SUFFIX) && file.name !in referenced)
+                val orphan = file.name.endsWith(PART_SUFFIX) || (file.name.endsWith(WAV_SUFFIX) && file.name !in referenced)
                 orphan && file.isFile && file.delete()
             }
         }

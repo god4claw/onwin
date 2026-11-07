@@ -14,6 +14,7 @@ import java.io.File
  * Живой прогресс сюда не пишется — только смены статуса и сегменты.
  */
 interface SessionRepository {
+
     /** Все сессии, новые сверху; новый список при каждом изменении. */
     fun observeSessions(): Flow<List<SessionListItem>>
 
@@ -23,71 +24,48 @@ interface SessionRepository {
     /** Сессия без сегментов; `null`, если её нет. */
     suspend fun get(id: String): Session?
 
-    /**
-     * Проверяет, существует ли незавершённая сессия импорта, использующая данный [sourceUri].
-     *
-     * @param sourceUri URI исходного аудиофайла.
-     * @return `true`, если для сохранения и обработки импорта все еще требуется доступ к исходнику.
-     */
+    /** Есть сессия, которой ещё может понадобиться разрешение на чтение исходника. */
     suspend fun hasImportNeedingSource(sourceUri: String): Boolean
 
     /** Добавляет новую сессию. */
     suspend fun create(session: Session)
 
     /** Меняет название существующей сессии. Возвращает false, если сессия уже удалена. */
-    suspend fun rename(
-        id: String,
-        title: String
-    ): Boolean
+    suspend fun rename(id: String, title: String): Boolean
 
     /** Сохраняет имя спикера в сессии. `null` возвращает стандартное имя. */
-    suspend fun setSpeakerName(
-        id: String,
-        speaker: Int,
-        name: String?
-    )
+    suspend fun setSpeakerName(id: String, speaker: Int, name: String?)
 
     /** Меняет статус; ошибка задаётся только вместе с [SessionStatus.FAILED], иначе стирается. */
     suspend fun updateStatus(
         id: String,
         status: SessionStatus,
         errorCode: ErrorCode? = null,
-        errorMessage: String? = null
+        errorMessage: String? = null,
     )
 
     /** Записывает имя WAV и длительность; `null` и `null` — WAV больше нет. */
-    suspend fun setWav(
-        id: String,
-        wavFileName: String?,
-        durationMs: Long?
-    )
+    suspend fun setWav(id: String, wavFileName: String?, durationMs: Long?)
 
     /** Добавляет сегмент под номером [index]. */
-    suspend fun appendSegment(
-        id: String,
-        index: Int,
-        segment: Segment
-    )
+    suspend fun appendSegment(id: String, index: Int, segment: Segment)
 
     /** Заменяет все сегменты сессии одной транзакцией; номера — по порядку [segments]. */
-    suspend fun replaceSegments(
-        id: String,
-        segments: List<Segment>
-    )
+    suspend fun replaceSegments(id: String, segments: List<Segment>)
 
     /** Удаляет все сегменты сессии. */
     suspend fun clearSegments(id: String)
 
     /**
-     * Переводит незавершённые сессии (`RECORDING`/`QUEUED`/`CONVERTING`/`TRANSCRIBING`) в `FAILED` с [errorCode].
+     * Переводит сессии, оставшиеся в `RECORDING`/`QUEUED`/`CONVERTING`/`TRANSCRIBING`, в `FAILED` с [errorCode].
      *
      * @return сколько сессий изменено.
      */
     suspend fun failUnfinished(errorCode: ErrorCode): Int
 
     /**
-     * Удаляет WAV без ссылок из сессий и недописанные `.part`.
-     * Вызывать только при простое: иначе удалит ещё не зафиксированный файл.
+     * Удаляет из папки записей WAV, на которые не ссылается ни одна сессия, и недописанные `.part`.
+     * Вызывать, только пока не идёт конвертация: иначе удалится файл, который ещё пишется или не успел попасть в БД.
      *
      * @return сколько файлов удалено.
      */

@@ -20,8 +20,9 @@ import kotlinx.coroutines.withContext
  */
 class ConverterAudioToWav(
     private val context: Context,
-    private val converter: AudioConverter
+    private val converter: AudioConverter,
 ) : AudioToWav {
+
     override suspend fun displayName(source: String): String? = withContext(Dispatchers.IO) {
         val uri = source.toUri()
         val queried = if (uri.scheme == ContentResolver.SCHEME_CONTENT) {
@@ -60,10 +61,7 @@ class ConverterAudioToWav(
         }
     }
 
-    override suspend fun convert(
-        source: String,
-        onProgress: (Float) -> Unit
-    ): ConvertedWav = try {
+    override suspend fun convert(source: String, onProgress: (Float) -> Unit): ConvertedWav = try {
         val result = converter.toWav(source.toUri(), onProgress)
         ConvertedWav(result.file, result.durationMs)
     } catch (error: AudioConversionException) {

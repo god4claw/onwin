@@ -51,7 +51,7 @@ import java.util.UUID
 class AudioConverter(
     private val context: Context,
     private val outputDir: File = File(context.filesDir, "recordings"),
-    private val dispatcher: CoroutineDispatcher = Dispatchers.Default
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     /**
      * Декодирует любой поддерживаемый платформой формат (mp3, m4a/AAC, ogg Opus/Vorbis, FLAC,
@@ -70,10 +70,7 @@ class AudioConverter(
      *   или не удалось записать результат ([AudioConversionException.TooLong],
      *   [AudioConversionException.WriteFailed]).
      */
-    suspend fun toWav(
-        source: Uri,
-        onProgress: (Float) -> Unit = {}
-    ): WavResult = withContext(dispatcher) {
+    suspend fun toWav(source: Uri, onProgress: (Float) -> Unit = {}): WavResult = withContext(dispatcher) {
         val id = UUID.randomUUID().toString()
         val partFile = File(outputDir, "$id.wav.part")
         val wavFile = File(outputDir, "$id.wav")
@@ -106,11 +103,7 @@ class AudioConverter(
         }
     }
 
-    private suspend fun convert(
-        source: Uri,
-        pipeline: PcmPipeline,
-        onProgress: (Float) -> Unit
-    ): SourceInfo =
+    private suspend fun convert(source: Uri, pipeline: PcmPipeline, onProgress: (Float) -> Unit): SourceInfo =
         try {
             decode(source, pipeline, onProgress)
         } catch (e: CancellationException) {
@@ -122,11 +115,7 @@ class AudioConverter(
         }
 
     // Approach informed by ProtocolVoice AudioImporter, Apache-2.0.
-    private suspend fun decode(
-        source: Uri,
-        pipeline: PcmPipeline,
-        onProgress: (Float) -> Unit
-    ): SourceInfo {
+    private suspend fun decode(source: Uri, pipeline: PcmPipeline, onProgress: (Float) -> Unit): SourceInfo {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         try {
@@ -142,7 +131,7 @@ class AudioConverter(
             Log.i(
                 TAG,
                 "Source: mime=$mime, container rate=${inputFormat.intOrNull(MediaFormat.KEY_SAMPLE_RATE)}, " +
-                    "channels=${inputFormat.intOrNull(MediaFormat.KEY_CHANNEL_COUNT)}, durationUs=$durationUs"
+                    "channels=${inputFormat.intOrNull(MediaFormat.KEY_CHANNEL_COUNT)}, durationUs=$durationUs",
             )
 
             codec = createDecoder(mime)
@@ -157,7 +146,7 @@ class AudioConverter(
                 mime = mime,
                 sampleRate = inputFormat.intOrNull(MediaFormat.KEY_SAMPLE_RATE) ?: 0,
                 channels = inputFormat.intOrNull(MediaFormat.KEY_CHANNEL_COUNT) ?: 0,
-                pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
+                pcmEncoding = AudioFormat.ENCODING_PCM_16BIT,
             )
             return runCodec(codec, extractor, containerInfo, pipeline, ProgressThrottle(durationUs, onProgress))
         } finally {
@@ -180,7 +169,7 @@ class AudioConverter(
         val seekable = try {
             Os.lseek(descriptor.fileDescriptor, 0, OsConstants.SEEK_CUR)
             true
-        } catch (_: ErrnoException) {
+        } catch (e: ErrnoException) {
             false
         }
         if (!seekable) {
@@ -190,10 +179,7 @@ class AudioConverter(
         return descriptor
     }
 
-    /**
-     * Переводит ошибки открытия источника (нет файла, нет прав, null)
-     * в [AudioConversionException.SourceUnavailable].
-     */
+    /** Переводит ошибки открытия источника (нет файла, нет прав, null) в [AudioConversionException.SourceUnavailable]. */
     private inline fun <T : Any> openingSource(open: () -> T?): T = try {
         open()
     } catch (e: FileNotFoundException) {
@@ -204,9 +190,9 @@ class AudioConverter(
 
     private fun createDecoder(mime: String): MediaCodec? = try {
         MediaCodec.createDecoderByType(mime)
-    } catch (_: IOException) {
+    } catch (e: IOException) {
         null
-    } catch (_: IllegalArgumentException) {
+    } catch (e: IllegalArgumentException) {
         null
     }
 
@@ -221,7 +207,7 @@ class AudioConverter(
         extractor: MediaExtractor,
         containerInfo: SourceInfo,
         pipeline: PcmPipeline,
-        progress: ProgressThrottle
+        progress: ProgressThrottle,
     ): SourceInfo {
         val info = MediaCodec.BufferInfo()
         var sourceInfo: SourceInfo? = null
@@ -269,11 +255,7 @@ class AudioConverter(
     }
 
     /** Перенастраивает [pipeline] на фактический выходной формат декодера. */
-    private fun applyFormat(
-        format: MediaFormat,
-        mime: String,
-        pipeline: PcmPipeline
-    ): SourceInfo {
+    private fun applyFormat(format: MediaFormat, mime: String, pipeline: PcmPipeline): SourceInfo {
         val rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
         val channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
         val androidEncoding = format.intOrNull(MediaFormat.KEY_PCM_ENCODING) ?: AudioFormat.ENCODING_PCM_16BIT
@@ -292,7 +274,7 @@ class AudioConverter(
         source: Uri,
         mime: String,
         pipeline: PcmPipeline,
-        onProgress: (Float) -> Unit
+        onProgress: (Float) -> Unit,
     ): SourceInfo {
         // Отдельное открытие: у копий дескриптора общая позиция, а экстрактор свою уже сдвинул.
         val stream = openingSource { context.contentResolver.openInputStream(source) }
@@ -302,7 +284,7 @@ class AudioConverter(
             Log.i(
                 TAG,
                 "RIFF: rate=${reader.sampleRate}, channels=${reader.channelCount}, " +
-                    "encoding=${reader.encoding}; ${pipeline.resamplerInfo}"
+                    "encoding=${reader.encoding}; ${pipeline.resamplerInfo}",
             )
             val progress = ProgressThrottle(reader.dataBytes, onProgress)
             val buffer = ByteBuffer.allocate(RIFF_BUFFER_BYTES)
@@ -323,32 +305,21 @@ class AudioConverter(
         }
     }
 
-    private fun logResult(
-        file: File,
-        durationMs: Long,
-        wallNanos: Long,
-        resamplerNanos: Long
-    ) {
+    private fun logResult(file: File, durationMs: Long, wallNanos: Long, resamplerNanos: Long) {
         val audioSeconds = durationMs / 1000.0
         Log.i(
             TAG,
             String.format(
                 Locale.ROOT,
                 "Done: %s, duration=%d ms, wall=%d ms, speed=%.1fx, resampler only=%.1fx",
-                file.name,
-                durationMs,
-                wallNanos / 1_000_000,
-                audioSeconds / (wallNanos / 1e9),
-                audioSeconds / (resamplerNanos / 1e9)
-            )
+                file.name, durationMs, wallNanos / 1_000_000,
+                audioSeconds / (wallNanos / 1e9), audioSeconds / (resamplerNanos / 1e9),
+            ),
         )
     }
 
     /** Прогресс position / total с шагом не меньше [STEP]; при неизвестном total молчит. */
-    private class ProgressThrottle(
-        private val total: Long,
-        private val onProgress: (Float) -> Unit
-    ) {
+    private class ProgressThrottle(private val total: Long, private val onProgress: (Float) -> Unit) {
         private var reported = 0f
 
         fun update(position: Long) {
