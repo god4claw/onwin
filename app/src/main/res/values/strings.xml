@@ -89,9 +89,17 @@
     <string name="error_unknown">Неизвестная ошибка.</string>
 
     <!-- Уведомление -->
-    <string name="notification_channel_processing">Обработка записей</string>
+    <string name="notification_channel_processing">Запись и расшифровка</string>
     <string name="notification_title_default">Обработка записи</string>
     <string name="notification_queued">Ещё в очереди: %1$d</string>
+    <string name="notification_finish_recording">Завершить и сохранить</string>
+    <string name="notification_saving_recording">Сохраняем запись…</string>
+    <string name="notification_enable">Включить уведомления</string>
+    <string name="notification_enable_description">Завершайте запись и следите за обработкой из шторки</string>
+    <string name="notification_transcript_ready">Расшифровка готова</string>
+    <string name="notification_open_transcript">Открыть расшифровку</string>
+    <string name="notification_open_latest_transcript">Открыть последнюю расшифровку</string>
+    <string name="notification_transcripts_ready">Готовые расшифровки (%1$d)</string>
     <string name="sessions_record">Записать</string>
     <string name="action_stop">Остановить</string>
     <string name="status_recording">Запись</string>

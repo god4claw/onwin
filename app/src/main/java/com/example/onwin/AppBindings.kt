@@ -93,6 +93,7 @@ object AppBindings {
         microphone = microphone,
         livePcm = GrowingWavPcmSource,
         recordingTitle = { context.getString(R.string.recording_name) },
+        onTranscriptionCompleted = (context as OnWinApp)::onTranscriptionCompleted,
     )
 
     @Provides

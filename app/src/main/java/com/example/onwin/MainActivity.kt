@@ -62,6 +62,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        (application as OnWinApp).onActivityVisibilityChanged(visible = true)
+    }
+
+    override fun onStop() {
+        (application as OnWinApp).onActivityVisibilityChanged(visible = false)
+        super.onStop()
+    }
+
     companion object {
         /** id сессии, которую открыть (из уведомления). */
         const val EXTRA_SESSION_ID = "com.example.onwin.extra.OPEN_SESSION_ID"

@@ -54,37 +54,61 @@ internal class ProcessingNotifications(private val context: Context) {
             .setContentIntent(openIntent(recording?.sessionId ?: running?.sessionId))
         if (state.queuedCount > 0) builder.setSubText(context.getString(R.string.notification_queued, state.queuedCount))
         if (recording != null) {
-            builder.setContentText(context.getString(R.string.recording_elapsed, formatClock(recording.elapsedMs)))
+            val saving = recording.phase == RecordingPhase.STOPPING
+            val status = if (saving) context.getString(R.string.notification_saving_recording)
+            else context.getString(R.string.recording_elapsed, formatClock(recording.elapsedMs))
+            builder.setContentText(status)
                 .setProgress(0, 0, false)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            if (recording.phase != RecordingPhase.STOPPING) builder.addAction(
-                0, context.getString(R.string.action_stop),
+            if (!saving) builder.addAction(
+                0, context.getString(R.string.notification_finish_recording),
                 PendingIntent.getService(context, 2, ProcessingService.stopRecordingIntent(context, recording.sessionId), PENDING_FLAGS),
             )
-            builder.addAction(0, context.getString(R.string.recording_cancel), cancelIntent(recording.sessionId))
-        }
-        if (running != null) {
+        } else if (running != null) {
             builder.addAction(0, context.getString(R.string.processing_cancel), cancelIntent(running.sessionId))
         }
         return builder.build()
     }
 
     /** Обновляет уведомление; без разрешения `POST_NOTIFICATIONS` молча пропускает — прогресс есть в приложении. */
-    fun show(state: ProcessingState) {
+    fun show(state: ProcessingState) = post(NOTIFICATION_ID) { build(state) }
+
+    fun showCompletion(sessionId: String, count: Int) = post(COMPLETION_ID) { buildCompletion(sessionId, count) }
+
+    fun buildCompletion(sessionId: String, count: Int): Notification =
+        NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_processing)
+            .setContentTitle(
+                if (count == 1) context.getString(R.string.notification_transcript_ready)
+                else context.getString(R.string.notification_transcripts_ready, count),
+            )
+            .setContentText(context.getString(
+                if (count == 1) R.string.notification_open_transcript else R.string.notification_open_latest_transcript,
+            ))
+            .setContentIntent(openIntent(sessionId, REQUEST_OPEN_COMPLETION))
+            .setNumber(count)
+            .setAutoCancel(true)
+            .setSilent(true)
+            .build()
+
+    private fun post(id: Int, notification: () -> Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            return
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val manager = NotificationManagerCompat.from(context)
+        if (!manager.areNotificationsEnabled()) return
+        try {
+            manager.notify(id, notification())
+        } catch (_: SecurityException) {
+            // Permission may have been revoked after the check.
         }
-        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, build(state))
     }
 
-    private fun openIntent(sessionId: String?): PendingIntent {
+    private fun openIntent(sessionId: String?, requestCode: Int = REQUEST_OPEN): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         if (sessionId != null) intent.putExtra(MainActivity.EXTRA_SESSION_ID, sessionId)
-        return PendingIntent.getActivity(context, REQUEST_OPEN, intent, PENDING_FLAGS)
+        return PendingIntent.getActivity(context, requestCode, intent, PENDING_FLAGS)
     }
 
     private fun cancelIntent(sessionId: String): PendingIntent =
@@ -94,10 +118,12 @@ internal class ProcessingNotifications(private val context: Context) {
         /** id уведомления foreground-сервиса. */
         const val NOTIFICATION_ID = 1
 
+        private const val COMPLETION_ID = 2
         private const val CHANNEL_ID = "processing"
         private const val PROGRESS_MAX = 100
         private const val REQUEST_OPEN = 0
         private const val REQUEST_CANCEL = 1
+        private const val REQUEST_OPEN_COMPLETION = 3
         private const val PENDING_FLAGS = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     }
 }

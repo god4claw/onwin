@@ -60,8 +60,17 @@ class ProcessingService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
-        if (intent?.action == ACTION_STOP) intent.getStringExtra(EXTRA_SESSION_ID)?.let(controller::stopRecording)
-        if (intent?.action == ACTION_CANCEL) intent.getStringExtra(EXTRA_SESSION_ID)?.let(controller::cancel)
+        if (intent?.action == ACTION_STOP) {
+            intent.getStringExtra(EXTRA_SESSION_ID)?.let(controller::stopRecording)
+            notifications.show(controller.state.value)
+        }
+        if (intent?.action == ACTION_CANCEL) {
+            val state = controller.state.value
+            val id = intent.getStringExtra(EXTRA_SESSION_ID)
+            if (id != null && state.running?.sessionId == id && state.recording?.sessionId != id) {
+                controller.cancel(id)
+            }
+        }
         if (!observing) {
             observing = true
             observe()

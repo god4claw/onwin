@@ -1,8 +1,10 @@
 package com.example.onwin.data.processing
 
+import android.app.Notification
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.onwin.R
 import com.example.onwin.data.audio.AudioConverter
 import com.example.onwin.data.audio.ConverterAudioToWav
 import com.example.onwin.data.audio.TestAudioProvider
@@ -12,7 +14,11 @@ import com.example.onwin.data.transcription.FakeTranscriber
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.DefaultProcessingController
 import com.example.onwin.domain.processing.ForegroundStarter
+import com.example.onwin.domain.processing.ProcessingStage
+import com.example.onwin.domain.processing.ProcessingState
 import com.example.onwin.domain.processing.RecordingPhase
+import com.example.onwin.domain.processing.RecordingState
+import com.example.onwin.domain.processing.RunningJob
 import com.example.onwin.ui.notification.ProcessingNotifications
 import com.example.speech.api.SpeechConfig
 import java.io.File
@@ -74,12 +80,42 @@ class ProcessingPipelineTest {
     }
 
     @Test
+    fun notificationKeepsOnlyTheActionForTheVisibleTask() {
+        val notifications = ProcessingNotifications(context)
+        val recording = RecordingState("mic", "Recording", RecordingPhase.RECORDING)
+        val running = RunningJob("import", "Import", ProcessingStage.RECOGNITION, 0.5f)
+        val state = ProcessingState(recording = recording, running = running)
+
+        val capturing = notifications.build(state)
+        assertEquals(context.getString(R.string.notification_finish_recording), capturing.actions.single().title)
+        val saving = notifications.build(state.copy(recording = recording.copy(phase = RecordingPhase.STOPPING)))
+        assertTrue(saving.actions.isNullOrEmpty())
+        assertEquals(context.getString(R.string.notification_saving_recording), saving.extras.getString(Notification.EXTRA_TEXT))
+        val processing = notifications.build(state.copy(recording = null))
+        assertEquals(context.getString(R.string.processing_cancel), processing.actions.single().title)
+    }
+
+    @Test
+    fun completionSummarizesResultsAndHasItsOwnTapTarget() {
+        val notifications = ProcessingNotifications(context)
+        val progress = notifications.build(ProcessingState(recording = RecordingState("mic", "Recording")))
+        val completion = notifications.buildCompletion("import", count = 2)
+
+        assertEquals(2, completion.number)
+        assertEquals(
+            context.getString(R.string.notification_transcripts_ready, 2),
+            completion.extras.getString(Notification.EXTRA_TITLE),
+        )
+        assertTrue(completion.flags and Notification.FLAG_AUTO_CANCEL != 0)
+        assertFalse(progress.contentIntent == completion.contentIntent)
+    }
+
+    @Test
     fun microphone_stopPersistsCanonicalWavAndTranscribesWithoutConversion(): Unit = runBlocking {
         val id = controller.startRecording()!!
         withTimeout(10_000.milliseconds) { controller.state.first { it.recording?.phase == RecordingPhase.RECORDING } }
         val notification = ProcessingNotifications(context).build(controller.state.value)
-        assertEquals(listOf(context.getString(com.example.onwin.R.string.action_stop),
-            context.getString(com.example.onwin.R.string.action_cancel)), notification.actions.map { it.title.toString() })
+        assertEquals(context.getString(R.string.notification_finish_recording), notification.actions.single().title)
         assertTrue(notification.actions.all { it.actionIntent != null })
         assertTrue(notification.contentIntent != null)
         controller.stopRecording(id)
@@ -116,6 +152,8 @@ class ProcessingPipelineTest {
         val wav = repository.wavFile(session.wavFileName!!)
         assertTrue(wav.isFile)
 
+        // DONE is persisted before the worker releases the active session.
+        withTimeout(10_000.milliseconds) { controller.state.first { !it.busy } }
         controller.delete(id)
         withTimeout(10_000.milliseconds) { repository.observeSession(id).first { it == null } }
         assertFalse(wav.exists())

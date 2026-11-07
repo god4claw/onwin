@@ -74,6 +74,7 @@ import com.example.onwin.ui.navigation.isCompact
 import com.example.onwin.ui.formatClock
 import com.example.onwin.ui.labelRes
 import com.example.onwin.ui.messageRes
+import com.example.onwin.ui.screens.recordings.NotificationPermissionAction
 import com.example.onwin.ui.theme.ActiveRecordingTheme
 import com.example.onwin.ui.theme.GolosText
 import com.example.onwin.ui.theme.RecordingActiveColor
@@ -232,6 +233,7 @@ internal fun ActiveRecordingScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                 )
+                NotificationPermissionAction(Modifier.align(Alignment.CenterHorizontally))
             } else if (status == SessionStatus.DONE) {
                 Spacer(Modifier.height(22.dp))
             }

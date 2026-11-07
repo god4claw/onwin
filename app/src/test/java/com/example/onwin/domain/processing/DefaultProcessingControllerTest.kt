@@ -45,6 +45,7 @@ class DefaultProcessingControllerTest {
     val tmp = TemporaryFolder()
 
     private val events = mutableListOf<String>()
+    private val completed = mutableListOf<String>()
     private lateinit var recordings: File
     private lateinit var repository: FakeSessionRepository
     private lateinit var audio: FakeAudioToWav
@@ -166,6 +167,7 @@ class DefaultProcessingControllerTest {
 
         assertEquals(DONE, repository.session(first).status)
         assertEquals(DONE, repository.session(second).status)
+        assertEquals(listOf(first, second), completed)
         assertEquals(1, transcriber.loads)
         assertEquals(1, transcriber.releases)
         assertEquals(1, transcriber.maxConcurrent)
@@ -481,6 +483,10 @@ class DefaultProcessingControllerTest {
         dispatcher = StandardTestDispatcher(testScheduler),
         clock = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC),
         log = ::println,
+        onTranscriptionCompleted = { id ->
+            assertEquals(DONE, repository.session(id).status)
+            completed += id
+        },
     )
 
     private fun stored(id: String, status: SessionStatus, errorCode: ErrorCode? = null) = Session(

@@ -11,21 +11,30 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import com.example.onwin.R
 
 /** Permission prompts are tied to an explicit recording action. */
@@ -39,13 +48,8 @@ internal fun rememberRequestRecording(onRecord: () -> Unit): () -> Unit {
         if (activity is LifecycleOwner && activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
             !activity.isFinishing && !activity.isDestroyed) onRecord()
     }
-    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { start() }
-    val afterMicrophone = {
-        if (shouldAskNotifications(context)) notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
-        else start()
-    }
     val microphone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) afterMicrophone()
+        if (granted) start()
         else if (activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.RECORD_AUDIO)) {
             settings = true
         }
@@ -66,7 +70,7 @@ internal fun rememberRequestRecording(onRecord: () -> Unit): () -> Unit {
     )
     return {
         when {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> afterMicrophone()
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> start()
             activity != null && ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.RECORD_AUDIO) -> rationale = true
             else -> microphone.launch(Manifest.permission.RECORD_AUDIO)
         }
@@ -79,13 +83,43 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-private fun shouldAskNotifications(context: Context): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
-    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-        PackageManager.PERMISSION_GRANTED
-    if (granted) return false
-    val prefs = context.getSharedPreferences("ui", Context.MODE_PRIVATE)
-    if (prefs.getBoolean("notifications_asked", false)) return false
-    prefs.edit { putBoolean("notifications_asked", true) }
-    return true
+@Composable
+internal fun NotificationPermissionAction(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val activity = context.findActivity() ?: return
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val resumed = lifecycleState == Lifecycle.State.RESUMED
+    val prefs = remember(context) { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
+    var requesting by rememberSaveable { mutableStateOf(false) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        requesting = false
+    }
+    if (NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+    TextButton(
+        modifier = modifier,
+        enabled = !requesting && resumed,
+        onClick = {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+                (!prefs.getBoolean("notifications_asked", false) ||
+                    ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.POST_NOTIFICATIONS))
+            ) {
+                requesting = true
+                prefs.edit { putBoolean("notifications_asked", true) }
+                launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+            }
+        },
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(stringResource(R.string.notification_enable))
+            Text(
+                text = stringResource(R.string.notification_enable_description),
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
 }

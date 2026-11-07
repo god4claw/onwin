@@ -85,6 +85,7 @@ class DefaultProcessingController(
         java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it))
     },
     private val livePcm: LivePcmSource? = null,
+    private val onTranscriptionCompleted: (String) -> Unit = {},
 ) : ProcessingController {
 
     private val scope = CoroutineScope(
@@ -438,6 +439,7 @@ class DefaultProcessingController(
             repository.updateStatus(id, SessionStatus.FAILED, failure.code, failure.cause.toString())
             return
         }
+        onTranscriptionCompleted(id)
         session.sourceUri?.let { source ->
             sourceAccess.withLock { releaseUnusedSource(source) }
         }
