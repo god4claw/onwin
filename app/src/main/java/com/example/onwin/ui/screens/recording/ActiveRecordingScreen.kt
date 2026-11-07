@@ -1,5 +1,7 @@
 package com.example.onwin.ui.screens.recording
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,17 +38,22 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.res.pluralStringResource
@@ -89,7 +96,11 @@ import com.example.onwin.ui.theme.RecordingReadyColor
 import com.example.onwin.ui.theme.RecordingSpeakerBackground
 import com.example.onwin.ui.theme.RecordingSpeakerOutline
 import com.example.onwin.ui.theme.RecordingTranscriptText
+import com.example.onwin.ui.theme.TranscriptHighlightAccent
+import com.example.onwin.ui.theme.TranscriptHighlightLabel
+import com.example.onwin.ui.theme.TranscriptHighlightText
 import com.example.onwin.ui.theme.recordingCardBackground
+import com.example.onwin.ui.theme.transcriptHighlight
 
 @Composable
 internal fun ActiveRecordingScreen(
@@ -202,6 +213,8 @@ internal fun ActiveRecordingScreen(
                             detail = detail,
                             compact = compact,
                             canSeek = playback.ready,
+                            playing = playback.ready && playback.playing && status == SessionStatus.DONE,
+                            playbackPosition = playbackPosition,
                             onRenameSpeaker = onRenameSpeaker,
                             onEditSegment = onEditSegment,
                             onSeek = onSeekPlayback,
@@ -311,6 +324,8 @@ private fun RecordingTranscript(
     detail: SessionDetail,
     compact: Boolean,
     canSeek: Boolean,
+    playing: Boolean,
+    playbackPosition: State<Long>,
     onSeek: (Long) -> Unit,
     onRenameSpeaker: (Int) -> Unit,
     onEditSegment: ((Int) -> Unit)?,
@@ -322,6 +337,34 @@ private fun RecordingTranscript(
     }
     val listState = rememberLazyListState()
     val isDragged by listState.interactionSource.collectIsDraggedAsState()
+    val currentItem by remember(playing, segments, playbackPosition) {
+        val timeline = if (playing) segments.withIndex().sortedBy { it.value.startMs } else emptyList()
+        derivedStateOf(structuralEqualityPolicy()) {
+            if (timeline.isEmpty()) {
+                null
+            } else {
+                val position = playbackPosition.value
+                timeline.lastOrNull { position >= it.value.startMs && position < it.value.endMs }
+            }
+        }
+    }
+    var followPlayback by remember(playing) { mutableStateOf(playing) }
+
+    LaunchedEffect(isDragged, playing) {
+        if (isDragged) followPlayback = false
+    }
+    LaunchedEffect(currentItem?.index, followPlayback, isDragged) {
+        val index = currentItem?.index ?: return@LaunchedEffect
+        if (!followPlayback || isDragged) return@LaunchedEffect
+        val layout = listState.layoutInfo
+        val visible = layout.visibleItemsInfo.firstOrNull { it.index == index }
+        if (visible == null || visible.offset < 0 || visible.offset + visible.size >
+            layout.viewportEndOffset - layout.afterContentPadding
+        ) {
+            listState.scrollToItem(index)
+        }
+    }
+
     // Автопрокрутка к последней реплике, пока пользователь сам не отлистал вверх.
     var followLast by remember { mutableStateOf(true) }
     // Первое заполнение: сразу к низу, без анимации.
@@ -384,48 +427,77 @@ private fun RecordingTranscript(
                 val speakerName = speakerNames[segment.speaker]
                     ?: stringResource(R.string.speaker_default, segment.speaker + 1)
                 val timecode = formatClock(segment.startMs)
-                Column {
+                val current = currentItem?.value?.index == segment.index
+                val highlight = remember { Animatable(0f) }
+                val highlightSurface = remember(highlight) {
+                    Modifier.transcriptHighlight { highlight.value }
+                }
+                LaunchedEffect(current) {
+                    val targetOpacity = if (current) 1f else 0f
+                    if (highlight.value != targetOpacity) {
+                        highlight.animateTo(targetOpacity, tween(durationMillis = 220))
+                    }
+                }
+                val showHighlight = current || highlight.value > 0f
+                Column(
+                    Modifier.fillMaxWidth().then(
+                        if (showHighlight) highlightSurface else Modifier,
+                    ),
+                ) {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text(
-                            text = speakerName,
-                            modifier = Modifier.weight(1f, fill = false)
-                                .then(target?.anchor(Modifier, TranscriptOnboardingStep.SPEAKER) ?: Modifier)
-                                .clip(CircleShape)
-                                .background(RecordingSpeakerBackground, CircleShape)
-                                .border(1.dp, RecordingSpeakerOutline, CircleShape)
-                                .clickable(
-                                    enabled = detail.session.status == SessionStatus.DONE,
-                                    role = Role.Button,
-                                    onClickLabel = stringResource(R.string.speaker_rename_title),
-                                ) { onRenameSpeaker(segment.speaker) }
-                                .padding(horizontal = 11.dp, vertical = 4.dp),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
                         Row(
+                            modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
-                                text = timecode,
-                                modifier = Modifier.clickable(enabled = canSeek) { onSeek(segment.startMs) },
-                                color = RecordingDurationColor,
-                                style = MaterialTheme.typography.labelSmall,
+                                text = speakerName,
+                                modifier = Modifier.weight(1f, fill = false)
+                                    .then(target?.anchor(Modifier, TranscriptOnboardingStep.SPEAKER) ?: Modifier)
+                                    .clip(CircleShape)
+                                    .background(RecordingSpeakerBackground, CircleShape)
+                                    .border(1.dp, RecordingSpeakerOutline, CircleShape)
+                                    .clickable(
+                                        enabled = detail.session.status == SessionStatus.DONE,
+                                        role = Role.Button,
+                                        onClickLabel = stringResource(R.string.speaker_rename_title),
+                                    ) { onRenameSpeaker(segment.speaker) }
+                                    .padding(horizontal = 11.dp, vertical = 4.dp),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
-                            if (detail.session.status == SessionStatus.DONE && onEditSegment != null) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_recording_rename),
-                                    contentDescription = stringResource(R.string.segment_edit_action, timecode),
-                                    modifier = Modifier.size(20.dp)
-                                        .clickable(role = Role.Button) { onEditSegment(segment.index) },
-                                    tint = RecordingDurationColor,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    text = timecode,
+                                    modifier = Modifier.clickable(enabled = canSeek) { onSeek(segment.startMs) },
+                                    color = RecordingDurationColor,
+                                    style = MaterialTheme.typography.labelSmall,
                                 )
+                                if (detail.session.status == SessionStatus.DONE && onEditSegment != null) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_recording_rename),
+                                        contentDescription = stringResource(R.string.segment_edit_action, timecode),
+                                        modifier = Modifier.size(20.dp)
+                                            .clickable(role = Role.Button) { onEditSegment(segment.index) },
+                                        tint = RecordingDurationColor,
+                                    )
+                                }
                             }
+                        }
+                        if (showHighlight) {
+                            TranscriptPlaybackLabel(
+                                Modifier.graphicsLayer { alpha = highlight.value }
+                                    .then(if (current) Modifier else Modifier.clearAndSetSemantics {}),
+                            )
                         }
                     }
                     Text(
@@ -433,12 +505,34 @@ private fun RecordingTranscript(
                         modifier = Modifier.padding(top = 6.dp)
                             .then(target?.anchor(Modifier, TranscriptOnboardingStep.TEXT) ?: Modifier)
                             .clickable(enabled = canSeek) { onSeek(segment.startMs) },
-                        color = RecordingTranscriptText,
+                        color = lerp(RecordingTranscriptText, TranscriptHighlightText, highlight.value),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TranscriptPlaybackLabel(modifier: Modifier) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_transcript_playing),
+            contentDescription = null,
+            tint = TranscriptHighlightAccent,
+        )
+        Text(
+            text = stringResource(R.string.playback_current_reply),
+            color = TranscriptHighlightLabel,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

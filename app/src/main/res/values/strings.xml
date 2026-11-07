@@ -137,6 +137,7 @@
     <string name="playback_play">Воспроизвести аудио</string>
     <string name="playback_pause">Приостановить аудио</string>
     <string name="playback_timeline">Шкала воспроизведения</string>
+    <string name="playback_current_reply">Сейчас звучит</string>
     <string name="playback_unavailable">Аудио недоступно.</string>
     <string name="playback_cannot_start">Не удалось запустить звук. Попробуйте ещё раз.</string>
     <plurals name="recording_speaker_count">

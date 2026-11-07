@@ -3,6 +3,7 @@ package com.example.onwin.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -172,7 +173,7 @@ class ActiveRecordingScreenTest {
         val edit = compose.onNodeWithContentDescription("Изменить реплику в 00:09")
         val gap = text.getUnclippedBoundsInRoot().top - speaker.getUnclippedBoundsInRoot().bottom
         assertEquals(originalGap.value, gap.value, 1f)
-        assertTrue((edit.getUnclippedBoundsInRoot().left - timecode.getUnclippedBoundsInRoot().right) in 0.dp..3.dp)
+        assertTrue((edit.getUnclippedBoundsInRoot().left - timecode.getUnclippedBoundsInRoot().right) in 5.dp..7.dp)
 
         timecode.performTouchInput { click() }
         compose.runOnIdle { assertEquals(9_200L, sought) }
@@ -181,6 +182,54 @@ class ActiveRecordingScreenTest {
             assertEquals(0, edited)
             assertEquals(9_200L, sought)
         }
+    }
+
+    @Test
+    fun playbackBringsCurrentReplyIntoViewAndClearsHighlightDuringSilenceOrPause() {
+        val playback = mutableStateOf(RecordingPlaybackState(durationMs = 60_000L))
+        val position = mutableLongStateOf(6_000L)
+        val detail = transcriptDetail(transcriptSegments(12))
+        compose.setContent {
+            ActiveRecordingTheme {
+                ActiveRecordingScreen(
+                    detail = detail,
+                    loaded = true,
+                    elapsedMs = 60_000L,
+                    processing = false,
+                    canStop = false,
+                    canCancel = false,
+                    cancelling = false,
+                    onBack = {},
+                    onStop = {},
+                    onCancel = {},
+                    onRenameSpeaker = {},
+                    playback = playback.value,
+                    playbackPosition = position,
+                )
+            }
+        }
+
+        val label = compose.onNodeWithText("Сейчас звучит")
+        label.assertDoesNotExist()
+        compose.onNodeWithText("Реплика 11").assertIsDisplayed()
+
+        fun assertHighlightOnReply(index: Int) {
+            label.assertIsDisplayed()
+            val reply = compose.onNodeWithText("Реплика $index").assertIsDisplayed()
+            val gap = reply.getUnclippedBoundsInRoot().top - label.getUnclippedBoundsInRoot().bottom
+            assertTrue(gap in 0.dp..16.dp)
+        }
+
+        compose.runOnIdle { playback.value = playback.value.copy(playing = true) }
+        assertHighlightOnReply(1)
+        compose.runOnIdle { position.longValue = 9_000L }
+        label.assertDoesNotExist()
+        compose.runOnIdle { position.longValue = 10_000L }
+        assertHighlightOnReply(2)
+        compose.runOnIdle { position.longValue = 55_500L }
+        assertHighlightOnReply(11)
+        compose.runOnIdle { playback.value = playback.value.copy(playing = false) }
+        label.assertDoesNotExist()
     }
 
     @Test
