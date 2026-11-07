@@ -26,6 +26,8 @@ Options:
   --agc <on|off>             Streaming gain control before VAD (default: AgcConfig, on)
   --agc-target-db <x>        AGC target speech level, dBFS (default: AgcConfig, -20)
   --agc-max-gain-db <x>      AGC gain ceiling, dB (default: AgcConfig, 24)
+  --dump-embeddings          Write each streaming segment's speaker embedding to the JSON
+  --recluster-threshold <x>  Streaming final speaker re-clustering threshold, 0..1 (default: SpeechConfig, 0.60)
   --serial <serial>   adb device serial (default: first device)
   --out <dir>         Local output directory (default: bench-results)
   --no-build          Skip Gradle build/install
@@ -53,6 +55,8 @@ VAD_MAX_SPEECH_MS=""
 AGC=""
 AGC_TARGET_DB=""
 AGC_MAX_GAIN_DB=""
+DUMP_EMBEDDINGS=0
+RECLUSTER_THRESHOLD=""
 SERIAL=""
 OUT_DIR="bench-results"
 NO_BUILD=0
@@ -78,6 +82,8 @@ while [[ $# -gt 0 ]]; do
         --agc) AGC="${2:?--agc requires a value}"; shift 2 ;;
         --agc-target-db) AGC_TARGET_DB="${2:?--agc-target-db requires a value}"; shift 2 ;;
         --agc-max-gain-db) AGC_MAX_GAIN_DB="${2:?--agc-max-gain-db requires a value}"; shift 2 ;;
+        --dump-embeddings) DUMP_EMBEDDINGS=1; shift ;;
+        --recluster-threshold) RECLUSTER_THRESHOLD="${2:?--recluster-threshold requires a value}"; shift 2 ;;
         --serial) SERIAL="${2:?--serial requires a value}"; shift 2 ;;
         --out) OUT_DIR="${2:?--out requires a value}"; shift 2 ;;
         --no-build) NO_BUILD=1; shift ;;
@@ -165,6 +171,14 @@ OPTIONAL_ARGS=()
 [[ -n "$AGC" ]] && OPTIONAL_ARGS+=(-e agc "$AGC")
 [[ -n "$AGC_TARGET_DB" ]] && OPTIONAL_ARGS+=(-e agc_target_db "$AGC_TARGET_DB")
 [[ -n "$AGC_MAX_GAIN_DB" ]] && OPTIONAL_ARGS+=(-e agc_max_gain_db "$AGC_MAX_GAIN_DB")
+[[ "$DUMP_EMBEDDINGS" -eq 1 ]] && OPTIONAL_ARGS+=(-e dump_embeddings on)
+if [[ -n "$RECLUSTER_THRESHOLD" ]]; then
+    if ! awk -v v="$RECLUSTER_THRESHOLD" 'BEGIN { exit !(v + 0 == v && v >= 0 && v <= 1) }'; then
+        echo "Invalid --recluster-threshold: $RECLUSTER_THRESHOLD (expected 0..1)" >&2
+        exit 1
+    fi
+    OPTIONAL_ARGS+=(-e recluster_threshold "$RECLUSTER_THRESHOLD")
+fi
 [[ -n "$VAD_THRESHOLD" ]] && OPTIONAL_ARGS+=(-e vad_threshold "$VAD_THRESHOLD")
 [[ -n "$VAD_MIN_SILENCE_MS" ]] && OPTIONAL_ARGS+=(-e vad_min_silence_ms "$VAD_MIN_SILENCE_MS")
 [[ -n "$VAD_MIN_SPEECH_MS" ]] && OPTIONAL_ARGS+=(-e vad_min_speech_ms "$VAD_MIN_SPEECH_MS")

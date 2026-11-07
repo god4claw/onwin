@@ -63,6 +63,9 @@ class SpeechBenchmarkTest {
             minSpeechMs = nonNegativeInt("vad_min_speech_ms", defaults.vad.minSpeechMs),
             maxSpeechMs = positiveInt("vad_max_speech_ms", defaults.vad.maxSpeechMs),
         )
+        // Отладка: писать embedding каждой реплики в JSON (для подбора кластеризации на хосте).
+        val dumpEmbeddings = onOff("dump_embeddings", false)
+        val reclusterThreshold = threshold("recluster_threshold", defaults.speakerReclusterThreshold)
         val agc = AgcConfig(
             enabled = onOff("agc", defaults.agc.enabled),
             targetDbfs = floatArg("agc_target_db", defaults.agc.targetDbfs),
@@ -105,6 +108,7 @@ class SpeechBenchmarkTest {
             pace = pace,
             vad = vad,
             agc = agc,
+            reclusterThreshold = reclusterThreshold,
         )
 
         val batch = if (mode == "batch" || mode == "both") {
@@ -135,6 +139,8 @@ class SpeechBenchmarkTest {
                 vad = vad,
                 agc = agc,
                 pace = pace,
+                dumpEmbeddings = dumpEmbeddings,
+                reclusterThreshold = reclusterThreshold,
             )
         } else {
             null
@@ -264,6 +270,8 @@ class SpeechBenchmarkTest {
         vad: VadConfig,
         agc: AgcConfig,
         pace: Float,
+        dumpEmbeddings: Boolean,
+        reclusterThreshold: Float,
     ): StreamingResult {
         val transcriber = SherpaStreamingTranscriber(context)
         val loadStart = SystemClock.elapsedRealtime()
@@ -277,6 +285,7 @@ class SpeechBenchmarkTest {
                     speakerChangeThreshold = speakerChangeThreshold,
                     vad = vad,
                     agc = agc,
+                    speakerReclusterThreshold = reclusterThreshold,
                 ),
             )
             val modelLoadMs = SystemClock.elapsedRealtime() - loadStart
@@ -289,6 +298,7 @@ class SpeechBenchmarkTest {
                     index = index + 1,
                     chunkMs = chunkMs,
                     pace = pace,
+                    dumpEmbeddings = dumpEmbeddings,
                 )
             }
             return StreamingResult(modelLoadMs = modelLoadMs, runs = results)
@@ -304,6 +314,7 @@ class SpeechBenchmarkTest {
         index: Int,
         chunkMs: Int,
         pace: Float,
+        dumpEmbeddings: Boolean,
     ): StreamingRun {
         val chunkSize = (BENCHMARK_SAMPLE_RATE * chunkMs / 1000).coerceAtLeast(1)
         val chunkCount = (samples.size + chunkSize - 1) / chunkSize
@@ -324,6 +335,17 @@ class SpeechBenchmarkTest {
             val sample = (audioPositionMs * BENCHMARK_SAMPLE_RATE / 1000L - 1L).coerceAtLeast(0L)
             val chunk = (sample / chunkSize).toInt().coerceIn(0, chunkCount - 1)
             return fedAt.get(chunk)
+        }
+
+        var embeddings: List<EmbeddingRecord>? = null
+        transcriber.debugRecordsSink = if (dumpEmbeddings) {
+            { records ->
+                embeddings = records.map {
+                    EmbeddingRecord(it.segment.startMs, it.segment.endMs, it.segment.speaker, it.embedding)
+                }
+            }
+        } else {
+            null
         }
 
         val startedAt = SystemClock.elapsedRealtime()
@@ -406,6 +428,7 @@ class SpeechBenchmarkTest {
             nativeHeapMb = nativeHeapMb(),
             segments = segments,
             events = events,
+            embeddings = embeddings,
         )
     }
 

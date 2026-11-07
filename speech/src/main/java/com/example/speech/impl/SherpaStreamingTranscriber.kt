@@ -54,7 +54,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * - VAD-гейт принимает аудио и отдаёт готовые чанки;
  * - [StreamingChunkProcessor] режет чанк по смене говорящего, распознаёт куски
  *   и назначает спикера;
- * - готовые реплики уходят в `Utterance`, в конце — `Done`.
+ * - готовые реплики уходят в `Utterance` с предварительной (онлайн) меткой
+ *   спикера; в конце — `Done`, где метки пересчитаны [SpeakerReclusterer]
+ *   по всем embedding-ам сессии.
  *
  * Жизненный цикл моделей:
  * - [load] и [transcribeStream] сериализованы одним mutex;
@@ -69,6 +71,12 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
     @Volatile private var vad: VadSegmenter? = null
     @Volatile private var embeddingExtractor: SpeakerEmbeddingExtractor? = null
     @Volatile private var loadedConfig: SpeechConfig? = null
+
+    /**
+     * Отладка/бенчмарк: в конце сессии получает все реплики с embedding
+     * (до финальной обработки меток). В приложении не используется.
+     */
+    @Volatile internal var debugRecordsSink: ((List<SegmentRecord>) -> Unit)? = null
 
     private val releaseGate = ReleaseGate(
         releaseModels = { releaseLocked() },
@@ -289,16 +297,22 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                     trace?.invoke("stream failed: ${failure.javaClass.simpleName}")
                     send(StreamingEvent.Failed(failure))
                 } else {
-                    val pruned = pruneStreamingClusters(produced, config)
+                    val records = processor.records.toList()
+                    debugRecordsSink?.invoke(records)
+                    // Онлайн-метки — предварительные: в Done спикеры пересчитываются
+                    // по всем embedding-ам сессии разом.
+                    val final = SpeakerReclusterer(
+                        mergeThreshold = config.speakerReclusterThreshold,
+                    ).relabel(records)
                     trace?.invoke(
-                        "stream done segments=${pruned.size} " +
-                            "speakers=${produced.map { it.speaker }.distinct().size}" +
-                            "->${pruned.map { it.speaker }.distinct().size} " +
+                        "stream done segments=${final.size} " +
+                            "speakers online=${produced.map { it.speaker }.distinct().size}" +
+                            " final=${final.map { it.speaker }.distinct().size} " +
                             "audio=${vad.receivedSamples * 1000L / VadSegmenter.SAMPLE_RATE}ms " +
                             (agc?.let { "agcMax=%.1fdB ".format(Locale.US, it.maxAppliedGainDb) } ?: "") +
                             "took=${(System.nanoTime() - streamStartedAt) / 1_000_000}ms",
                     )
-                    send(StreamingEvent.Done(pruned))
+                    send(StreamingEvent.Done(final))
                 }
             } catch (c: CancellationException) {
                 queue.cancel()
@@ -327,25 +341,6 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
         // «запрос + tryLock + handoff» живёт в ReleaseGate.
         releaseGate.release()
     }
-
-    /**
-     * Убирает мелкие кластеры, накопившиеся за сессию. Пока сессия идёт,
-     * [OnlineSpeakerClusterer] старается их не создавать, но финальная
-     * постобработка нужна как страховка: `Done` должен отдавать столько
-     * спикеров, сколько реально слышно.
-     */
-    private fun pruneStreamingClusters(
-        segments: List<Segment>,
-        config: SpeechConfig,
-    ): List<Segment> = pruneTinyClustersOf(
-        segments = segments,
-        startMs = { it.startMs },
-        endMs = { it.endMs },
-        speaker = { it.speaker },
-        withSpeaker = { segment, speaker -> segment.copy(speaker = speaker) },
-        minSupportMs = config.clusterPruneMinMs.toLong(),
-        minFraction = config.clusterPruneMinFraction,
-    )
 
     private fun extractEmbedding(
         extractor: SpeakerEmbeddingExtractor,

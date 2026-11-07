@@ -21,8 +21,12 @@ across files, so use it for WER/latency, not DER.
 Writes <out>/<name>.wav (canonical 16 kHz mono PCM16), <name>.turns.jsonl
 (speaker/start/end/text) and <name>.rttm.
 
-Usage: python make_golden.py <parquet> <out_dir>
+Usage: python make_golden.py <parquet> <out_dir> [--holdout]
 Needs numpy and pyarrow.
+
+--holdout writes a separate held-out set (other rows of the same shard, no
+golden_long) for checking that parameters tuned on the golden set generalize:
+never tune on it.
 """
 from __future__ import annotations
 
@@ -49,6 +53,17 @@ GOLDEN = [
     ("syn45_mono1", 45),
 ]
 
+# Other rows of the same shard, duplicates skipped: 2-4 speakers, clean/noisy,
+# overlaps and simultaneous speech, two monologues.
+HOLDOUT = [
+    ("hold03_interview2", 3), ("hold04_interview2", 4), ("hold08_simult2", 8),
+    ("hold09_dialog2", 9), ("hold13_static2", 13), ("hold24_dialog2", 24),
+    ("hold29_dialog2", 29), ("hold30_group3_noise", 30), ("hold32_group4_crowd", 32),
+    ("hold33_hum2", 33), ("hold39_white2", 39), ("hold41_hum2", 41),
+    ("hold44_simult_static2", 44), ("hold51_pink2", 51), ("hold59_static2", 59),
+    ("hold64_pink2", 64), ("hold20_mono1_hum", 20), ("hold43_mono1_brown", 43),
+]
+
 
 def write_refs(out: Path, name: str, turns: list[dict]) -> None:
     with (out / f"{name}.turns.jsonl").open("w", encoding="utf-8") as f:
@@ -65,10 +80,12 @@ def write_refs(out: Path, name: str, turns: list[dict]) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
+    args = [a for a in sys.argv[1:] if a != "--holdout"]
+    holdout = "--holdout" in sys.argv[1:]
+    if len(args) != 2:
         raise SystemExit(__doc__)
-    src = Path(sys.argv[1])
-    out = Path(sys.argv[2])
+    src = Path(args[0])
+    out = Path(args[1])
     out.mkdir(parents=True, exist_ok=True)
 
     table = pq.read_table(src)
@@ -76,7 +93,7 @@ def main() -> None:
     long_turns: list[dict] = []
     offset = 0.0
 
-    for name, index in GOLDEN:
+    for name, index in (HOLDOUT if holdout else GOLDEN):
         row = table.slice(index, 1).to_pylist()[0]
         if int(row["audio"]["sampling_rate"]) != RATE:
             raise SystemExit(f"row {index}: expected {RATE} Hz")
@@ -110,6 +127,8 @@ def main() -> None:
         long_audio.append(gap)
         offset += (len(samples) + len(gap)) / RATE
 
+    if holdout:
+        return
     long = np.concatenate(long_audio[:-1])
     write_wav(out / "golden_long.wav", long, RATE)
     write_refs(out, "golden_long", long_turns)

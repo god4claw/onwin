@@ -20,6 +20,16 @@ import java.util.Locale
  * только тайминги, длины и номера спикеров. Распознанный текст туда не
  * попадает: это офлайн-приложение, и текст разговора не должен утекать в logcat.
  */
+/**
+ * Реплика сессии вместе с её embedding (`null`, если кусок короче
+ * [StreamingChunkProcessor] минимума или embedding не посчитался). `segment.speaker`
+ * — онлайн-метка на момент выдачи; финальные метки считаются в конце сессии.
+ */
+internal class SegmentRecord(
+    val segment: Segment,
+    val embedding: FloatArray?,
+)
+
 internal class StreamingChunkProcessor(
     private val transcribe: (FloatArray) -> String,
     private val embeddingOf: (FloatArray) -> FloatArray?,
@@ -28,6 +38,10 @@ internal class StreamingChunkProcessor(
     private val minEmbeddingSamples: Int = MIN_EMBEDDING_SAMPLES,
     private val trace: ((String) -> Unit)? = null,
 ) {
+    private val sessionRecords = ArrayList<SegmentRecord>()
+
+    /** Все выданные реплики сессии с embedding — для перекластеризации в конце. */
+    val records: List<SegmentRecord> get() = sessionRecords
 
     /**
      * Режет чанк в точках смены говорящего. Даже если резать нечего,
@@ -73,12 +87,14 @@ internal class StreamingChunkProcessor(
                 "sim=${decision.similarity?.let { String.format(Locale.US, "%.3f", it) } ?: "-"} " +
                 "new=${decision.isNew} via=${decision.via} chars=${text.length}",
         )
-        return Segment(
+        val segment = Segment(
             speaker = decision.speaker,
             startMs = startMs,
             endMs = endMs,
             text = text,
         )
+        sessionRecords += SegmentRecord(segment, decision.embedding)
+        return segment
     }
 
     private fun assignSpeaker(samples: FloatArray): SpeakerDecision {
@@ -103,20 +119,22 @@ internal class StreamingChunkProcessor(
                 isNew = assignment.isNewSpeaker,
                 embeddingMs = embeddingMs,
                 via = "cluster",
+                embedding = embedding,
             )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            fallback("cluster-error", embeddingMs)
+            fallback("cluster-error", embeddingMs, embedding)
         }
     }
 
-    private fun fallback(via: String, embeddingMs: Long) = SpeakerDecision(
+    private fun fallback(via: String, embeddingMs: Long, embedding: FloatArray? = null) = SpeakerDecision(
         speaker = clusterer.lastSpeaker.coerceAtLeast(0),
         similarity = null,
         isNew = false,
         embeddingMs = embeddingMs,
         via = via,
+        embedding = embedding,
     )
 
     private class SpeakerDecision(
@@ -126,6 +144,7 @@ internal class StreamingChunkProcessor(
         val embeddingMs: Long,
         /** Как выбран спикер: `cluster` или причина fallback-а. */
         val via: String,
+        val embedding: FloatArray?,
     )
 
     private fun msOf(samples: Long): Long = samples * 1000L / VadSegmenter.SAMPLE_RATE

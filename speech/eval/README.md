@@ -20,6 +20,7 @@ make_golden.py             golden set for streaming tests from one synthetic sha
 score_wer.py               WER of a benchmark JSON against turns.jsonl / txt
 stream_report.py           one table: WER, DER, speaker error, latency, lag, RTF
 run_golden.sh              benchmark.sh over the whole golden set + report
+recluster_sim.py           host copy of SpeakerReclusterer: tune on --dump-embeddings JSONs
 ```
 
 ## Datasets used
@@ -53,6 +54,21 @@ python -m venv .venv-eval && .venv-eval/bin/pip install numpy pyarrow
 bash speech/eval/run_golden.sh bench-results/golden/paced --mode streaming --pace 1 --runs 1
 # re-print the table later
 python3 speech/eval/stream_report.py bench-results/golden/paced --refs speech/eval/golden
+```
+
+**Held-out set.** `make_golden.py <parquet> speech/eval/holdout --holdout` writes
+18 other conversations from the same shard. Tune parameters on the golden set,
+then check them on the held-out set **without re-tuning** — the speaker
+re-clustering threshold was validated this way (golden-tuned 0.60 gave the same
+gain on held-out data).
+
+**Tuning diarization on the host.** Run the benchmark with `--dump-embeddings`
+(no need for `--pace`: segmentation does not depend on it), then sweep in
+seconds instead of rebuilding the APK:
+
+```bash
+bash speech/eval/run_golden.sh bench-results/emb --mode streaming --runs 1 --dump-embeddings
+python speech/eval/recluster_sim.py bench-results/emb --refs speech/eval/golden --grid
 ```
 
 WAV, `turns.jsonl` and `rttm` files are gitignored; only the scripts are in git.

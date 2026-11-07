@@ -69,6 +69,8 @@ WAV и результаты лежат в **internal storage** приложен�
 | `-Agc` | `--agc` | `AgcConfig` (`on`) | АРУ перед VAD в streaming: `on` / `off` |
 | `-AgcTargetDb` | `--agc-target-db` | `AgcConfig` (−20) | Целевой уровень речи, dBFS |
 | `-AgcMaxGainDb` | `--agc-max-gain-db` | `AgcConfig` (24) | Потолок усиления, дБ |
+| `-ReclusterThreshold` | `--recluster-threshold` | `SpeechConfig` (0.60) | Порог финальной перекластеризации спикеров в streaming, `0..1` |
+| `-DumpEmbeddings` | `--dump-embeddings` | выкл. | Писать embedding каждой streaming-реплики в JSON (`segmentEmbeddings`) — для подбора кластеризации на хосте `speech/eval/recluster_sim.py` |
 
 VAD- и АРУ-параметры по умолчанию не передаются: тест берёт значения из `VadConfig` и `AgcConfig`, чтобы у дефолтов был один источник.
 

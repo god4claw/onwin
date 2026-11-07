@@ -58,4 +58,6 @@ A/B-замеры рефакторинга v2 (112 прогонов, BEFORE/AFTER
 
 АРУ перед VAD (дальний собеседник терялся VAD-ом): [`docs/bench-agc.md`](docs/bench-agc.md).
 
+Финальная перекластеризация спикеров в streaming (короткие ответы сливались с собеседником): [`docs/bench-recluster.md`](docs/bench-recluster.md).
+
 Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.

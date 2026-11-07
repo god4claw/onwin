@@ -116,6 +116,8 @@ internal data class BenchmarkConfig(
     val vad: VadConfig,
     /** АРУ влияет только на streaming. */
     val agc: AgcConfig,
+    /** Порог финальной перекластеризации streaming. */
+    val reclusterThreshold: Float,
 )
 
 internal data class BatchRun(
@@ -172,6 +174,14 @@ internal data class StreamingEventRecord(
     val latencyMs: Long,
 )
 
+/** Реплика с онлайн-меткой и embedding — только при `dump_embeddings on`. */
+internal class EmbeddingRecord(
+    val startMs: Long,
+    val endMs: Long,
+    val onlineSpeaker: Int,
+    val embedding: FloatArray?,
+)
+
 internal data class StreamingRun(
     val index: Int,
     val audioMs: Long,
@@ -186,6 +196,7 @@ internal data class StreamingRun(
     val nativeHeapMb: Int,
     val segments: List<Segment>,
     val events: List<StreamingEventRecord>,
+    val embeddings: List<EmbeddingRecord>? = null,
 ) {
     val rtf: Double get() = totalMs.toDouble() / audioMs.coerceAtLeast(1)
     val speedX: Double get() = audioMs.toDouble() / totalMs.coerceAtLeast(1)
@@ -332,6 +343,7 @@ private fun BenchmarkConfig.toJson(): JSONObject = JSONObject().apply {
             put("maxSpeechMs", vad.maxSpeechMs)
         },
     )
+    put("reclusterThreshold", reclusterThreshold)
     put(
         "agc",
         JSONObject().apply {
@@ -448,6 +460,28 @@ private fun StreamingRun.toJson(): JSONObject = JSONObject().apply {
             }
         },
     )
+    embeddings?.let { records ->
+        put(
+            "segmentEmbeddings",
+            JSONArray().apply {
+                records.forEach { record ->
+                    put(
+                        JSONObject().apply {
+                            put("startMs", record.startMs)
+                            put("endMs", record.endMs)
+                            put("onlineSpeaker", record.onlineSpeaker)
+                            put(
+                                "embedding",
+                                record.embedding?.let { vector ->
+                                    JSONArray().apply { vector.forEach { put(it.toDouble()) } }
+                                } ?: JSONObject.NULL,
+                            )
+                        },
+                    )
+                }
+            },
+        )
+    }
 }
 
 private fun List<Segment>.toJson(): JSONArray = JSONArray().apply {
@@ -484,7 +518,8 @@ internal fun BenchmarkReport.formatTable(): String {
             "change=${config.speakerChangeThreshold} pace=${config.pace} " +
             "vad=${config.vad.threshold}/${config.vad.minSilenceMs}ms/" +
             "${config.vad.minSpeechMs}ms/${config.vad.maxSpeechMs}ms " +
-            "agc=${if (config.agc.enabled) "${config.agc.targetDbfs}dBFS/+${config.agc.maxGainDb}dB" else "off"}",
+            "agc=${if (config.agc.enabled) "${config.agc.targetDbfs}dBFS/+${config.agc.maxGainDb}dB" else "off"} " +
+            "recluster=${config.reclusterThreshold}",
     )
 
     batch?.let { result ->
