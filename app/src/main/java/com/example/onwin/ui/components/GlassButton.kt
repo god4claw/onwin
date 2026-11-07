@@ -2,6 +2,7 @@ package com.example.onwin.ui.components
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -33,6 +34,23 @@ internal fun GlassButton(
     enabled: Boolean = true,
     leadingIcon: (@Composable () -> Unit)? = null,
 ) {
+    GlassButton(onClick, modifier, contentPadding, enabled) {
+        if (leadingIcon != null) {
+            leadingIcon()
+            Spacer(Modifier.width(9.dp))
+        }
+        Text(text, style = textStyle, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+internal fun GlassButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit,
+) {
     // Оставляем размер из макета. Compose расширяет зону касания небольших кнопок.
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
         Button(
@@ -50,12 +68,7 @@ internal fun GlassButton(
                 disabledContentColor = GlassButtonText.copy(alpha = 0.6f),
             ),
             contentPadding = contentPadding,
-        ) {
-            if (leadingIcon != null) {
-                leadingIcon()
-                Spacer(Modifier.width(9.dp))
-            }
-            Text(text, style = textStyle, textAlign = TextAlign.Center)
-        }
+            content = content,
+        )
     }
 }

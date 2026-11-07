@@ -38,10 +38,12 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.onwin.R
+import com.example.onwin.ui.components.GlassButton
 import com.example.onwin.ui.navigation.OnWinPanelSurface
 import com.example.onwin.ui.navigation.NavigationPanelContent
 import com.example.onwin.ui.navigation.NavigationPanelContents
 import com.example.onwin.ui.navigation.PanelPrimary
+import com.example.onwin.ui.navigation.PanelPrimaryHeight
 import com.example.onwin.ui.navigation.panelElement
 import com.example.onwin.ui.formatClock
 import com.example.onwin.ui.theme.PlaybackProgressColor
@@ -90,10 +92,12 @@ internal fun recordingPlaybackPanelContent(
     onTogglePlayback: () -> Unit,
     onSeekPlayback: (Long) -> Unit,
     sessionId: String? = null,
+    onExport: (() -> Unit)? = null,
+    exportInProgress: Boolean = false,
 ): NavigationPanelContent = NavigationPanelContent(
     horizontalPadding = 26.dp,
     topPadding = if (compact) 24.dp else 27.dp,
-    bottomPadding = if (compact) 42.dp else 68.dp,
+    bottomPadding = 24.dp,
     heading = panelElement(R.string.playback_heading) {
         Text(
             text = stringResource(R.string.playback_heading),
@@ -128,6 +132,20 @@ internal fun recordingPlaybackPanelContent(
     primary = PanelPrimary(
         onClick = onTogglePlayback,
         enabled = playback.ready,
+        trailing = onExport?.let { export ->
+            panelElement(R.string.recording_export) { interactive ->
+                GlassButton(
+                    onClick = export,
+                    modifier = Modifier.size(PanelPrimaryHeight),
+                    enabled = interactive && !exportInProgress,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_recording_export),
+                        contentDescription = stringResource(R.string.recording_export),
+                    )
+                }
+            }
+        },
         icon = panelElement(when {
             playback.preparing -> "playback-preparing"
             playback.playing -> R.string.playback_pause

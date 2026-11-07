@@ -90,7 +90,7 @@ class TranscriptExportTest {
                     ActiveRecordingRoute(onBack = {}, viewModel = viewModel)
                 }
             }
-            val button = compose.onNodeWithText("Экспорт в документ")
+            val button = compose.onNodeWithContentDescription("Экспорт в документ")
             compose.waitUntil(timeoutMillis = 5_000) {
                 compose.onNodeWithText("Черновик").isDisplayed()
             }

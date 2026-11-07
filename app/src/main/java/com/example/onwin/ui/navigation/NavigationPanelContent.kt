@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
@@ -43,7 +44,9 @@ import com.example.onwin.ui.components.GradientButton
 import com.example.onwin.ui.theme.RecordingsTheme
 
 internal const val PanelPrimaryTag = "navigation-panel-primary"
+internal val PanelPrimaryHeight = 60.dp
 private const val PanelDuration = 220
+private val PanelTrailingGap = 12.dp
 
 internal data class PanelElement(
     val key: Any,
@@ -71,6 +74,7 @@ internal data class PanelPrimary(
     val onClick: () -> Unit,
     val enabled: Boolean = true,
     val width: Dp? = 136.dp,
+    val trailing: PanelElement? = null,
 )
 
 internal data class NavigationPanelContent(
@@ -90,6 +94,7 @@ private data class PanelLayoutKey(
     val supporting: Any?,
     val hasPrimary: Boolean,
     val secondary: Any?,
+    val trailing: Any?,
     val width: Dp?,
     val horizontal: Dp,
     val top: Dp,
@@ -101,7 +106,7 @@ private data class PanelLayoutKey(
 internal fun NavigationPanelContents(model: NavigationPanelContent, owner: String?, enabled: Boolean) {
     val layoutKey = PanelLayoutKey(
         owner, model.heading?.key, model.supporting?.key, model.primary != null,
-        model.secondary?.key, model.primary?.width, model.horizontalPadding,
+        model.secondary?.key, model.primary?.trailing?.key, model.primary?.width, model.horizontalPadding,
         model.topPadding, model.bottomPadding, model.primaryBottomGap,
     )
     var settledKey by remember { mutableStateOf(layoutKey) }
@@ -174,8 +179,11 @@ private fun PersistentPrimary(primary: PanelPrimary?, enabled: Boolean) {
     if (primary != null) SideEffect { retained = primary }
     val visible = primary ?: retained
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        val trailing = visible?.trailing
+        val trailingSpace = if (trailing != null) PanelPrimaryHeight + PanelTrailingGap else 0.dp
+        val widthLimit = (maxWidth - trailingSpace * 2).coerceAtLeast(0.dp)
         val width by animateDpAsState(
-            (visible?.width ?: maxWidth.coerceAtMost(480.dp)).coerceAtMost(maxWidth),
+            (visible?.width ?: maxWidth.coerceAtMost(480.dp)).coerceAtMost(widthLimit),
             tween(PanelDuration), label = "panel primary width",
         )
         AnimatedVisibility(
@@ -184,19 +192,28 @@ private fun PersistentPrimary(primary: PanelPrimary?, enabled: Boolean) {
             exit = shrinkVertically(tween(PanelDuration)) + fadeOut(tween(140)),
         ) {
             if (visible != null) {
-                GradientButton(
-                    onClick = { if (enabled && primary != null) primary.onClick() },
-                    modifier = Modifier.width(width).testTag(PanelPrimaryTag),
-                    enabled = enabled && primary?.enabled == true,
-                ) {
-                    AnimatedContent(
-                        targetState = visible.icon,
-                        contentKey = { it.key },
-                        transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(140)) },
-                        label = "panel primary icon",
-                    ) { icon ->
-                        Box(if (icon.key == visible.icon.key) Modifier else Modifier.clearAndSetSemantics {}) {
-                            icon.content(enabled && primary != null)
+                val primaryWidth = width.coerceAtMost(widthLimit)
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    GradientButton(
+                        onClick = { if (enabled && primary != null) primary.onClick() },
+                        modifier = Modifier.width(primaryWidth).testTag(PanelPrimaryTag),
+                        enabled = enabled && primary?.enabled == true,
+                        minHeight = PanelPrimaryHeight,
+                    ) {
+                        AnimatedContent(
+                            targetState = visible.icon,
+                            contentKey = { it.key },
+                            transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(140)) },
+                            label = "panel primary icon",
+                        ) { icon ->
+                            Box(if (icon.key == visible.icon.key) Modifier else Modifier.clearAndSetSemantics {}) {
+                                icon.content(enabled && primary != null)
+                            }
+                        }
+                    }
+                    if (trailing != null) {
+                        Box(Modifier.offset(x = (primaryWidth + PanelPrimaryHeight) / 2 + PanelTrailingGap)) {
+                            trailing.content(enabled && primary != null)
                         }
                     }
                 }

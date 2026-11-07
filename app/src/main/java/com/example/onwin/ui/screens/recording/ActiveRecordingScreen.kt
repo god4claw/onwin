@@ -163,6 +163,8 @@ internal fun ActiveRecordingScreen(
             recordingPlaybackPanelContent(
                 viewport.isCompact, playback, playbackPosition, elapsedMs, onTogglePlayback, onSeekPlayback,
                 sessionId = detail.session.id,
+                onExport = onExport,
+                exportInProgress = exportInProgress,
             )
         }
         detail?.session?.canRetry == true -> { _ ->
@@ -209,7 +211,7 @@ internal fun ActiveRecordingScreen(
                         RecordingSummary(detail, elapsedMs, compact)
                         Spacer(Modifier.height(14.dp))
                         RecordingTranscript(
-                            modifier = Modifier.weight(1f, fill = false),
+                            modifier = Modifier.weight(1f, fill = status == SessionStatus.DONE),
                             detail = detail,
                             compact = compact,
                             canSeek = playback.ready,
@@ -220,15 +222,6 @@ internal fun ActiveRecordingScreen(
                             onSeek = onSeekPlayback,
                             onboardingTarget = target,
                         )
-                        if (detail.session.status == SessionStatus.DONE && onExport != null) {
-                            Spacer(Modifier.height(8.dp))
-                            GlassButton(
-                                text = stringResource(R.string.recording_export),
-                                onClick = onExport,
-                                modifier = Modifier.align(Alignment.CenterHorizontally),
-                                enabled = !exportInProgress,
-                            )
-                        }
                         detail.session.errorCode?.let { error ->
                             Spacer(Modifier.height(14.dp))
                             Text(
@@ -253,7 +246,7 @@ internal fun ActiveRecordingScreen(
                 )
                 NotificationPermissionAction(Modifier.align(Alignment.CenterHorizontally))
             } else if (status == SessionStatus.DONE) {
-                Spacer(Modifier.height(22.dp))
+                Spacer(Modifier.height(32.dp))
             }
         }
     }
@@ -409,9 +402,11 @@ private fun RecordingTranscript(
         }
     }
 
+    val maxHeight = if (detail.session.status == SessionStatus.DONE) Modifier
+        else Modifier.heightIn(max = if (compact) 184.dp else 208.dp)
     Column(
         modifier = modifier.fillMaxWidth()
-            .heightIn(max = if (compact) 184.dp else 208.dp)
+            .then(maxHeight)
             .recordingSurface(),
     ) {
         LazyColumn(

@@ -33,6 +33,7 @@ import com.example.onwin.domain.repository.TranscriptOnboardingStep.SPEAKER
 import com.example.onwin.domain.repository.TranscriptOnboardingStep.TEXT
 import com.example.onwin.ui.navigation.NavigationPanelSlot
 import com.example.onwin.ui.navigation.NavigationPanelTag
+import com.example.onwin.ui.navigation.PanelPrimaryTag
 import com.example.onwin.ui.navigation.NavigationPanels
 import com.example.onwin.ui.navigation.OnWinNavigationLayout
 import com.example.onwin.ui.screens.recording.ActiveRecordingScreen
@@ -299,33 +300,50 @@ class ActiveRecordingScreenTest {
     }
 
     @Test
-    fun doneScreenWithJsonButtonFitsWithoutPageScroll() {
+    fun doneScreenFillsTranscriptAndPlacesExportBesideCenteredPlayback() {
+        val detail = transcriptDetail(transcriptSegments(6))
         compose.setContent {
+            val panels = remember { NavigationPanels() }
+            val slot = remember(panels) { NavigationPanelSlot(panels, detail.session.id) }
             ActiveRecordingTheme {
                 Box(Modifier.height(700.dp)) {
-                    ActiveRecordingScreen(
-                        detail = transcriptDetail(transcriptSegments(6)),
-                        loaded = true,
-                        elapsedMs = 60_000,
-                        processing = false,
-                        canStop = false,
-                        canCancel = false,
-                        cancelling = false,
-                        onBack = {},
-                        onStop = {},
-                        onCancel = {},
-                        onRenameSpeaker = {},
-                        playback = RecordingPlaybackState(durationMs = 60_000),
-                        onTogglePlayback = {},
-                        onSeekPlayback = {},
-                        onExport = {},
-                    )
+                    OnWinNavigationLayout(panels, detail.session.id) { viewport ->
+                        ActiveRecordingScreen(
+                            modifier = viewport,
+                            panelSlot = slot,
+                            detail = detail,
+                            loaded = true,
+                            elapsedMs = 60_000,
+                            processing = false,
+                            canStop = false,
+                            canCancel = false,
+                            cancelling = false,
+                            onBack = {},
+                            onStop = {},
+                            onCancel = {},
+                            onRenameSpeaker = {},
+                            playback = RecordingPlaybackState(durationMs = 60_000),
+                            onTogglePlayback = {},
+                            onSeekPlayback = {},
+                            onExport = {},
+                        )
+                    }
                 }
             }
         }
 
-        compose.onNodeWithText("Экспорт в документ").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Воспроизвести аудио").assertIsDisplayed()
+        val panel = compose.onNodeWithTag(NavigationPanelTag).getUnclippedBoundsInRoot()
+        val play = compose.onNodeWithTag(PanelPrimaryTag).assertIsDisplayed().getUnclippedBoundsInRoot()
+        val export = compose.onNodeWithContentDescription("Экспорт в документ")
+            .assertIsDisplayed().getUnclippedBoundsInRoot()
+        val transcript = compose.onNodeWithTag("transcript-list").getUnclippedBoundsInRoot()
+        assertEquals(play.top, export.top)
+        assertEquals(play.bottom, export.bottom)
+        assertEquals(export.right - export.left, export.bottom - export.top)
+        assertEquals(12f, (export.left - play.right).value, 1f)
+        assertEquals(((panel.left + panel.right) / 2).value, ((play.left + play.right) / 2).value, 1f)
+        assertEquals(16f, (panel.top - transcript.bottom).value, 1f)
+        assertTrue(transcript.bottom - transcript.top > 184.dp)
         // Скроллится только лента реплик: у страницы своего скролла больше нет.
         assertEquals(1, compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes().size)
     }
