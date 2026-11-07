@@ -71,9 +71,11 @@ stream/batch → Done(segments) → release() ASR → postprocess → экспо
   (AAR 0.19.0 в `llm/local-repo`, ядро ORT 1.31.1);
 - модель Qwen2.5-0.5B-Instruct (ONNX GenAI, int4) ставится отдельно скриптами
   `llm/scripts/fetch-model.ps1` и `llm/scripts/push-model.ps1` — в APK её нет;
-- `OnDeviceLlm.create(context)` собирает на одной модели два прохода:
-  `corrector` (`CompositeCorrector`: словарь + `LlmCorrector`) и `analyzer`
-  (`LlmDialogueAnalyzer`: имена спикеров и резюме). Нет модели — `null`.
+- `OnDeviceLlm.create(context)` собирает на одной модели проходы:
+  `corrector` (`CompositeCorrector`: словарь + `LlmCorrector`), `analyzer`
+  (`LlmDialogueAnalyzer`: имена спикеров и резюме) и опциональный
+  `protocolAnalyzer` (протокол по кнопке). Язык RU/EN/MIXED выбирает промпт;
+  на английском корректор не запускается. Нет модели — `null`.
 
 ```kotlin
 // AppBindings: модель есть — оба прохода будут, нет — этап пропускается.
@@ -93,7 +95,7 @@ DefaultProcessingController(..., corrector = llm?.corrector, analyzer = llm?.ana
   имя, названное один раз в середине разговора, иначе не найти;
 - имя принимается, только если не спорит с другими кусками (при равенстве
   голосов — отказ);
-- резюме валидируется: эхо расшифровки («Спикер 1: …»), текст без кириллицы,
+- резюме валидируется: эхо расшифровки («Спикер 1: …»), текст без букв нужного языка,
   короче 40 символов и с `|` отбрасываются;
 - результат сохраняется в Room (`session_notes`, `speaker_suggestions`) и виден
   на экране записи: «Кратко» и чипы «Спикер N — Имя».
