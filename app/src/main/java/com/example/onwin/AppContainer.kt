@@ -5,17 +5,18 @@ import android.util.Log
 import com.example.onwin.data.audio.AndroidMicrophone
 import com.example.onwin.data.audio.AudioConverter
 import com.example.onwin.data.audio.ConverterAudioToWav
+import com.example.onwin.data.audio.GrowingWavPcmSource
 import com.example.onwin.data.audio.WavMicrophoneRecorder
 import com.example.onwin.data.database.AppDatabase
 import com.example.onwin.data.processing.PowerWakeLockHolder
 import com.example.onwin.data.repository.RoomSessionRepository
-import com.example.onwin.data.transcription.FakeTranscriber
 import com.example.onwin.domain.processing.DefaultProcessingController
 import com.example.onwin.domain.processing.ProcessingController
 import com.example.onwin.domain.repository.SessionRepository
 import com.example.onwin.ui.notification.ServiceForegroundStarter
 import com.example.speech.api.SpeechConfig
 import com.example.speech.api.Transcriber
+import com.example.speech.impl.SherpaVadTranscriber
 import java.io.File
 import java.time.Clock
 
@@ -30,8 +31,7 @@ class AppContainer(context: Context) {
     private val recordingsDir = File(appContext.filesDir, "recordings")
     private val clock = Clock.systemUTC()
 
-    // Единственное место выбора реализации :speech: заменить на SherpaTranscriber, когда он будет готов.
-    private val transcriber: Transcriber = FakeTranscriber()
+    private val transcriber: Transcriber = SherpaVadTranscriber(appContext)
 
     private val database = AppDatabase.create(appContext)
 
@@ -52,6 +52,7 @@ class AppContainer(context: Context) {
         clock = clock,
         log = { Log.i("Processing", it) },
         microphone = WavMicrophoneRecorder(AndroidMicrophone(appContext)),
+        livePcm = GrowingWavPcmSource,
         recordingTitle = { appContext.getString(R.string.recording_name) },
     )
 }

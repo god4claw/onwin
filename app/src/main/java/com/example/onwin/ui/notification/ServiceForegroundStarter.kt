@@ -40,13 +40,16 @@ class ServiceForegroundStarter(private val context: Context) : ForegroundStarter
     }
 
     @Synchronized
-    override fun startMicrophone(sessionId: String) {
+    override fun startMicrophone(sessionId: String) = startMicrophone(sessionId, processing = false)
+
+    @Synchronized
+    override fun startMicrophone(sessionId: String, processing: Boolean) {
         val existing = _request.value.takeIf { _keepForeground.value }
         launch(
             sessionId,
             ForegroundRequest(
                 microphone = true,
-                processing = existing?.processing == true,
+                processing = processing || existing?.processing == true,
                 processingReady = existing?.processingReady ?: CompletableDeferred(),
             ),
         )
@@ -109,6 +112,6 @@ internal class ForegroundRequest(
 
     fun refused(error: ForegroundStartException) {
         if (microphone) microphoneReady.completeExceptionally(error)
-        else processingReady.completeExceptionally(error)
+        if (processing) processingReady.completeExceptionally(error)
     }
 }

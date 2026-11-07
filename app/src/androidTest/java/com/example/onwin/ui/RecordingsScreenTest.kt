@@ -4,6 +4,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -36,6 +38,7 @@ class RecordingsScreenTest {
     @Test
     fun captureButtonSwitchesBetweenMicrophoneLoadingAndStop() {
         val state = mutableStateOf(RecordingsUiState())
+        val liveTranscription = mutableStateOf(true)
         var stopped: String? = null
         compose.setContent {
             RecordingsScreen(
@@ -45,6 +48,8 @@ class RecordingsScreenTest {
                 onRename = {},
                 onRecord = { state.value = RecordingsUiState(startingRecording = true) },
                 onImport = {},
+                liveTranscription = liveTranscription.value,
+                onLiveTranscriptionChange = { liveTranscription.value = it },
                 onStopRecording = { id ->
                     stopped = id
                     state.value = RecordingsUiState(
@@ -56,6 +61,9 @@ class RecordingsScreenTest {
                 },
             )
         }
+        val mode = compose.onNodeWithContentDescription("Расшифровка во время записи")
+        mode.assertIsOn().performClick()
+        mode.assertIsOff()
         compose.onNodeWithContentDescription("Записать аудио").performClick()
         compose.onNodeWithContentDescription("Подготовка микрофона…").assertIsDisplayed()
         compose.runOnIdle {
@@ -66,6 +74,7 @@ class RecordingsScreenTest {
                 )
             )
         }
+        mode.assertIsNotEnabled()
         compose.onNodeWithContentDescription("Остановить запись").performClick()
         compose.onNodeWithContentDescription("Сохранение записи…").assertIsDisplayed()
         compose.runOnIdle {

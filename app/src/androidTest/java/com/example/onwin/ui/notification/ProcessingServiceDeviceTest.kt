@@ -10,18 +10,21 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.onwin.MainActivity
 import com.example.onwin.OnWinApp
 import com.example.onwin.data.audio.WavWriter
+import com.example.onwin.data.transcription.TranscriptJsonExporter
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.RecordingPhase
-import java.io.File
-import java.util.UUID
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
+import java.util.UUID
 
 /** Uses the real app container and Android service; no foreground/capture test doubles. */
 @RunWith(AndroidJUnit4::class)
@@ -31,19 +34,40 @@ class ProcessingServiceDeviceTest {
     private val container get() = (context.applicationContext as OnWinApp).container
 
     @Test
-    fun importUsesRealProcessingForegroundService(): Unit = runBlocking {
-        val source = File(context.cacheDir, "service-test-${UUID.randomUUID()}.wav")
-        WavWriter(source).use { it.writeShorts(ShortArray(16_000) { 100 }) }
+    fun importUsesRealSpeechAndExportsTranscript(): Unit = runBlocking {
+        val speechAsset = InstrumentationRegistry.getArguments().getString("speechSample")
+        val source = File(context.cacheDir, "service-test-${UUID.randomUUID()}.${speechAsset?.substringAfterLast('.') ?: "wav"}")
+        val output = File.createTempFile("transcript-", ".json", context.cacheDir)
         var id: String? = null
         try {
+            if (speechAsset == null) {
+                WavWriter(source).use { it.writeShorts(ShortArray(16_000)) }
+            } else {
+                instrumentation.context.assets.open(speechAsset).use { input ->
+                    source.outputStream().use { input.copyTo(it) }
+                }
+            }
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 withTimeout(10_000) { container.processingController.state.first { !it.busy } }
                 scenario.onActivity { id = container.processingController.enqueueImport(Uri.fromFile(source).toString()) }
-                assertDone(checkNotNull(id), SessionSource.IMPORT)
+                val sessionId = checkNotNull(id)
+                assertDone(sessionId, SessionSource.IMPORT)
+                val detail = checkNotNull(container.sessionRepository.observeSession(sessionId).first())
+                TranscriptJsonExporter(context).write(Uri.fromFile(output), detail.segments)
+                val exported = Json.parseToJsonElement(output.readText()).jsonObject
+                    .getValue("transcript").jsonArray
+                assertEquals(detail.segments.size, exported.size)
+                if (speechAsset == null) {
+                    assertTrue(detail.segments.isEmpty())
+                } else {
+                    assertTrue(detail.segments.isNotEmpty())
+                    assertTrue(detail.segments.all { it.text.isNotBlank() && it.startMs < it.endMs })
+                }
             }
         } finally {
             id?.let { cleanup(it) }
             source.delete()
+            output.delete()
         }
     }
 
@@ -62,7 +86,11 @@ class ProcessingServiceDeviceTest {
                     }
                 }
                 scenario.moveToState(Lifecycle.State.CREATED)
-                delay(750)
+                withTimeout(120_000) {
+                    container.processingController.state.first {
+                        it.running?.sessionId == sessionId && it.running.stage == ProcessingStage.RECOGNITION
+                    }
+                }
                 // The same immutable service PendingIntent used by the notification's Stop action.
                 PendingIntent.getService(context, 200,
                     ProcessingService.stopRecordingIntent(context, sessionId),
@@ -90,7 +118,7 @@ class ProcessingServiceDeviceTest {
                 val firstId = checkNotNull(first)
                 withTimeout(10_000) { controller.state.first { it.running?.sessionId == firstId } }
                 scenario.onActivity {
-                    mic = controller.startRecording()
+                    mic = controller.startRecording(liveTranscription = false)
                     last = controller.enqueueImport(uri)
                 }
                 val micId = checkNotNull(mic)
@@ -101,7 +129,7 @@ class ProcessingServiceDeviceTest {
                             it.recording.phase == RecordingPhase.RECORDING
                     }
                 }
-                withTimeout(15_000) {
+                withTimeout(120_000) {
                     container.sessionRepository.observeSession(firstId).first { it?.session?.status == SessionStatus.DONE }
                 }
                 assertEquals(SessionStatus.QUEUED, container.sessionRepository.get(lastId)?.status)
@@ -118,7 +146,7 @@ class ProcessingServiceDeviceTest {
     }
 
     private suspend fun assertDone(id: String, source: SessionSource) {
-        val session = withTimeout(30_000) {
+        val session = withTimeout(120_000) {
             container.sessionRepository.observeSession(id).first {
                 it?.session?.status in setOf(SessionStatus.DONE, SessionStatus.FAILED, SessionStatus.CANCELLED)
             }

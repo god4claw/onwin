@@ -1,6 +1,6 @@
 # `:speech` — офлайн-распознавание и диаризация речи
 
-ML-модуль приложения `onwin`: русская речь → текст с таймкодами и метками говорящих. Считается на устройстве, сеть в рантайме не нужна. Веса лежат в APK и читаются через `AssetManager`.
+ML-модуль приложения `private-onwin`: русская речь → текст с таймкодами и метками говорящих. Считается на устройстве, сеть в рантайме не нужна. Веса лежат в APK и читаются через `AssetManager`.
 
 - **Файл (рекомендуется): `SherpaVadTranscriber`** — готовый WAV через пайплайн streaming без пауз: АРУ → VAD → ASR по репликам → спикеры по всей записи. На наших замерах точнее и вдвое быстрее batch и не падает на монологе — [`docs/bench-vad-transcriber.md`](../docs/bench-vad-transcriber.md).
 - **Batch:** готовый WAV → диаризация pyannote → сегменты с текстом (`SherpaTranscriber`).
@@ -282,7 +282,7 @@ SpeechConfig(
 > `Invoke-WebRequest`, ни `curl` без токена его не скачают — не подбирайте URL.
 >
 > 1. Откройте под своей учётной записью:
->    `https://github.com/god4claw/onwin/releases/tag/speech-models-v1`
+>    `https://github.com/god4claw/private-onwin/releases/tag/speech-models-v1`
 > 2. Assets → `speech-models-v1.zip` → скачайте в корень репозитория.
 > 3. Распакуйте (внутри уже есть `models/`, `asr/`, `vad/`):
 
@@ -378,7 +378,7 @@ speech/src/main/java/com/example/speech/
 
 1. `implementation(project(":speech"))` + `noCompress += listOf("onnx", "txt")`.
 2. Веса в `speech/src/main/assets/`, прогнать `:speech:verifyBundledModels`.
-3. В `AppContainer`: `SherpaTranscriber(appContext)` вместо `FakeTranscriber`.
+3. `AppContainer` передаёт `SherpaVadTranscriber(appContext)` в очередь приложения.
 4. `load()` один раз на пачку, `release()` в конце, события в БД.
 5. Пройти [чек-лист](#чек-лист) на arm64-устройстве.
 
@@ -418,18 +418,11 @@ dependencies {
 
 Требования: `minSdk >= 29`, JDK 17, Android SDK 37. Сборка приложения — `arm64-v8a` (debug и release). `:speech` сам не задаёт `abiFilters`, поэтому его инструментальные тесты и бенчмарк идут на x86_64-эмуляторе. Но `:app` режет ABI через `abiFilters += "arm64-v8a"` — на x86_64-эмуляторе такое приложение не запустится, нужен arm64-эмулятор или arm64-устройство.
 
-В текущем `:app` R8-оптимизация выключена (`optimization { enable = false }`). Если включить minify, нужно добавить keep-правила для `com.k2fsa.sherpa.onnx.**` и прогнать расшифровку на устройстве — иначе можно получить `UnsatisfiedLinkError` или пустой результат.
+В release-сборке `:app` включена оптимизация R8. Модуль `:speech` передаёт правила сохранения JNI-классов из `consumer-rules.pro`.
 
 ### Точка замены
 
-Сейчас в `AppContainer` стоит `FakeTranscriber`. Замена — одна строка:
-
-```diff
-- private val transcriber: Transcriber = FakeTranscriber()
-+ private val transcriber: Transcriber = SherpaVadTranscriber(appContext)
-```
-
-`SherpaVadTranscriber`, а не `SherpaTranscriber`: точнее на наших замерах, вдвое быстрее и не роняет процесс — batch-диаризация sherpa-onnx 1.13.0 падает SIGSEGV на монологе при `autoClusterThreshold` ≥ 0,80 (дефолт). Контракт тот же: `SegmentReady` по мере готовности (номер спикера предварительный), `Done` со всеми сегментами и финальными номерами — `DefaultProcessingController` уже заменяет ими предварительные (`replaceSegments`).
+`SherpaVadTranscriber` реализует `Transcriber` для готовых WAV и `StreamingTranscriber` для живого PCM. Обе точки входа используют один набор загруженных моделей. Приложение читает PCM из растущего WAV для живого режима, а в отложенном режиме и при импорте передаёт готовый WAV. `Utterance` и `SegmentReady` отдают реплики с предварительными номерами спикеров. В `Done` приходит итоговый список, который контроллер сохраняет через `replaceSegments`.
 
 ```kotlin
 import com.example.speech.impl.SherpaVadTranscriber
@@ -446,19 +439,13 @@ class AppContainer(context: Context) {
 }
 ```
 
-`SpeechConfig.modelsDir` больше нет: веса всегда берутся из assets APK. `FakeTranscriber` стоит оставить для UI-тестов — интерфейс `Transcriber` уже позволяет подменять реализацию. Юнит-тесты приложения не должны создавать `SherpaTranscriber`: ему нужен Android `Context` и native-библиотеки, проверять его лучше instrumented-тестами на устройстве или эмуляторе.
+Веса читаются из assets APK. `FakeTranscriber` доступен в тестовых наборах `:app`. Нативный движок проверяется инструментальными тестами на устройстве или совместимом эмуляторе.
 
 Всегда передавать `applicationContext` (как в `AppContainer`), а не Activity: транскрибер живёт дольше экрана и иначе удержит Activity в памяти.
 
 ### Очередь и отмена
 
-`DefaultProcessingController` уже написан под этот контракт: `load()` на пачку, `SegmentReady` → `appendSegment`, `Done` → `replaceSegments`, `Failed` → `TRANSCRIPTION_FAILED`, `release()` в конце пачки и в `finally`, отмена через отмену коллектора. Менять его логику не нужно — только точку создания транскрибера.
-
-Проверить три места:
-
-1. **`AppContainer`** — `SherpaTranscriber(appContext)` вместо `FakeTranscriber`.
-2. **Пакеты.** Не импортировать `com.example.speech.audio.*`, `com.example.speech.data.BundledModels`, `com.example.speech.impl.SherpaModelFactory` — они `internal` или детали реализации.
-3. **Обёртки.** Если транскрибер оборачивается (декоратор, логирование), нужно переопределить **оба** `transcribe`: перегрузка с `expectedSpeakers` по умолчанию делегирует в `transcribe(wav)` и потеряет число говорящих.
+`DefaultProcessingController` записывает `SegmentReady` через `appendSegment`, `Done` через `replaceSegments` и переводит `Failed` в `TRANSCRIPTION_FAILED`. Hilt предоставляет экранам и сервису общий контроллер из `AppContainer`.
 
 Для очереди `load()` вызывается **один раз на пачку** заданий, `release()` — когда очередь опустела и в `finally` работника. Не загружать модели на каждое задание: холодная загрузка — это 5–10 с и лишняя нагрузка на память.
 
@@ -524,7 +511,7 @@ job.cancelAndJoin()          // отменит коллектор; Flow заве
 - [ ] `noCompress += listOf("onnx", "txt")` в `:app`.
 - [ ] `:speech:verifyBundledModels` — `OK (6 файлов)`.
 - [ ] `:app:assembleDebug` собирается, APK устанавливается на arm64-устройство.
-- [ ] `AppContainer` создаёт `SherpaTranscriber`, `FakeTranscriber` остался для тестов.
+- [x] `AppContainer` создаёт `SherpaVadTranscriber`, `FakeTranscriber` доступен в тестовых наборах.
 
 Поведение:
 

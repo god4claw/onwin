@@ -55,7 +55,7 @@ class ProcessingPipelineTest {
             speechConfig = SpeechConfig(),
             foreground = NoForeground,
             wakeLock = PowerWakeLockHolder(context),
-            microphone = com.example.onwin.domain.processing.MicrophoneRecorder { part, stop, started, duration ->
+            microphone = com.example.onwin.domain.processing.MicrophoneRecorder { part, stop, started, duration, _ ->
                 part.parentFile!!.mkdirs()
                 com.example.onwin.data.audio.WavWriter(part).use { it.writeShorts(ShortArray(16_000) { 1234 }) }
                 started()

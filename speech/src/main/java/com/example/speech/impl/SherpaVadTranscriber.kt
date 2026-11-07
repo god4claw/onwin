@@ -5,6 +5,7 @@ import com.example.speech.api.Segment
 import com.example.speech.api.SpeechConfig
 import com.example.speech.api.Stage
 import com.example.speech.api.StreamingEvent
+import com.example.speech.api.StreamingTranscriber
 import com.example.speech.api.Transcriber
 import com.example.speech.api.TranscriptionEvent
 import com.example.speech.audio.VadSegmenter
@@ -36,11 +37,14 @@ import java.io.File
  * `expectedSpeakers` 1..20 сводит реплики ровно к стольким спикерам; `null` —
  * автоопределение.
  */
-class SherpaVadTranscriber(context: Context) : Transcriber {
+class SherpaVadTranscriber(context: Context) : Transcriber, StreamingTranscriber {
 
     private val engine = SherpaStreamingTranscriber(context)
 
     override suspend fun load(config: SpeechConfig) = engine.load(config)
+
+    override fun transcribeStream(audio: Flow<FloatArray>): Flow<StreamingEvent> =
+        engine.transcribeStream(audio)
 
     override fun transcribe(wav: File, expectedSpeakers: Int?): Flow<TranscriptionEvent> = channelFlow {
         if (expectedSpeakers != null && expectedSpeakers !in MIN_SPEAKERS..MAX_SPEAKERS) {

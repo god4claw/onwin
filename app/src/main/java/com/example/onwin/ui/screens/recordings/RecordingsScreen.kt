@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -72,6 +74,8 @@ internal fun RecordingsScreen(
     onStopRecording: (String) -> Unit,
     panelSlot: NavigationPanelSlot? = null,
     panelDimmed: Boolean = false,
+    liveTranscription: Boolean = true,
+    onLiveTranscriptionChange: (Boolean) -> Unit = {},
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     val canExpand = state.sessions.size > PreviewRecordingCount
@@ -129,6 +133,24 @@ internal fun RecordingsScreen(
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                         .padding(start = 22.dp, end = 22.dp, top = if (compact) 24.dp else 35.dp),
                 ) {
+                    val liveLabel = stringResource(R.string.recordings_live_transcription)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = liveLabel,
+                            modifier = Modifier.weight(1f).padding(end = 12.dp),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Switch(
+                            checked = liveTranscription,
+                            onCheckedChange = onLiveTranscriptionChange,
+                            enabled = recording == null && !state.startingRecording && !savingRecording,
+                            modifier = Modifier.semantics { contentDescription = liveLabel },
+                        )
+                    }
                     if (state.sessions.isEmpty()) {
                         Text(
                             text = stringResource(R.string.recordings_empty),

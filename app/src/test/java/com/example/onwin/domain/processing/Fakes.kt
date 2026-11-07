@@ -11,6 +11,8 @@ import com.example.onwin.domain.model.SpeakerName
 import com.example.speech.api.Segment
 import com.example.speech.api.SpeechConfig
 import com.example.speech.api.Stage
+import com.example.speech.api.StreamingEvent
+import com.example.speech.api.StreamingTranscriber
 import com.example.speech.api.Transcriber
 import com.example.speech.api.TranscriptionEvent
 import kotlinx.coroutines.CancellationException
@@ -183,7 +185,7 @@ class FakeAudioToWav(private val recordingsDir: File) : AudioToWav {
 }
 
 /** [Transcriber] по сценарию [script]; пишет события в общий [events]. */
-class ScriptedTranscriber(private val events: MutableList<String>) : Transcriber {
+class ScriptedTranscriber(private val events: MutableList<String>) : Transcriber, StreamingTranscriber {
 
     var loads = 0
     var releases = 0
@@ -196,6 +198,13 @@ class ScriptedTranscriber(private val events: MutableList<String>) : Transcriber
 
     var load: suspend () -> Unit = {}
     var script: suspend FlowCollector<TranscriptionEvent>.(call: Int) -> Unit = { emitDefault() }
+    var liveScript: suspend FlowCollector<StreamingEvent>.(Flow<FloatArray>) -> Unit =
+        { error("Unexpected streaming session") }
+
+    override fun transcribeStream(audio: Flow<FloatArray>): Flow<StreamingEvent> = flow {
+        events += "stream"
+        liveScript(audio)
+    }
 
     override suspend fun load(config: SpeechConfig) {
         loads++

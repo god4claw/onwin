@@ -3,6 +3,7 @@ package com.example.onwin.ui.screens.recordings
 import android.content.ContentResolver
 import android.database.sqlite.SQLiteException
 import android.net.Uri
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.onwin.domain.model.SessionListItem
@@ -34,12 +35,18 @@ import kotlinx.coroutines.launch
 class RecordingsViewModel @Inject constructor(
     private val repository: SessionRepository,
     private val controller: ProcessingController,
+    private val savedState: SavedStateHandle,
 ) : ViewModel() {
 
     private val startingRecording = MutableStateFlow(false)
     private val importing = MutableStateFlow(false)
     private val entryEvents = Channel<RecordingEntryEvent>(Channel.BUFFERED)
     internal val recordingEntryEvents = entryEvents.receiveAsFlow()
+    internal val liveTranscription = savedState.getStateFlow(LIVE_TRANSCRIPTION, true)
+
+    internal fun setLiveTranscription(enabled: Boolean) {
+        savedState[LIVE_TRANSCRIPTION] = enabled
+    }
 
     /** Состояние экрана. */
     val uiState: StateFlow<RecordingsUiState> =
@@ -69,7 +76,7 @@ class RecordingsViewModel @Inject constructor(
 
     fun startRecording() {
         if (startingRecording.value) return
-        val id = controller.startRecording() ?: return
+        val id = controller.startRecording(liveTranscription.value) ?: return
         startingRecording.value = true
         viewModelScope.launch {
             val ready = try {
@@ -120,6 +127,7 @@ class RecordingsViewModel @Inject constructor(
 
     private companion object {
         const val STOP_TIMEOUT_MS = 5_000L
+        const val LIVE_TRANSCRIPTION = "liveTranscription"
     }
 }
 

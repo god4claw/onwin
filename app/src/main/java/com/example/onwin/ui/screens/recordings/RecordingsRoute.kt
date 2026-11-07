@@ -36,6 +36,7 @@ internal fun RecordingsRoute(
     panelSlot: NavigationPanelSlot? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val liveTranscription by viewModel.liveTranscription.collectAsStateWithLifecycle()
     var deletingId by rememberSaveable { mutableStateOf<String?>(null) }
     var renamingId by rememberSaveable { mutableStateOf<String?>(null) }
     val openRecording by rememberUpdatedState(onOpen)
@@ -96,6 +97,8 @@ internal fun RecordingsRoute(
             }
         },
         onStopRecording = viewModel::stopRecording,
+        liveTranscription = liveTranscription,
+        onLiveTranscriptionChange = viewModel::setLiveTranscription,
     )
 
     RecordingsTheme {

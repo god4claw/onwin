@@ -14,6 +14,9 @@ interface ForegroundStarter {
     /** Request microphone foreground mode synchronously from the user action. */
     fun startMicrophone(sessionId: String) = start(sessionId)
 
+    /** Request both foreground types when speech processing starts during capture. */
+    fun startMicrophone(sessionId: String, processing: Boolean) = startMicrophone(sessionId)
+
     /** Capture may begin only after foreground promotion succeeds. */
     suspend fun awaitMicrophone() {}
 

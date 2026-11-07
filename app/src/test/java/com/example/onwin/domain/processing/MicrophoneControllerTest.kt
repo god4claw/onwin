@@ -7,11 +7,14 @@ import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
+import com.example.speech.api.Segment
 import com.example.speech.api.SpeechConfig
+import com.example.speech.api.StreamingEvent
 import com.example.speech.api.TranscriptionEvent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -38,7 +41,7 @@ class MicrophoneControllerTest {
     private lateinit var repository: FakeSessionRepository
     private lateinit var audio: FakeAudioToWav
     private var captureFailure: ErrorCode? = null
-    private val microphone = MicrophoneRecorder { file, stop, started, duration ->
+    private val microphone = MicrophoneRecorder { file, stop, started, duration, _ ->
         events += "capture"
         captureFailure?.let { throw RecordingException(it) }
         started()
@@ -48,13 +51,93 @@ class MicrophoneControllerTest {
         1000L
     }
 
-    private fun TestScope.controller(): DefaultProcessingController {
+    private fun TestScope.controller(livePcm: LivePcmSource? = null): DefaultProcessingController {
         val dir = tmp.newFolder()
         repository = FakeSessionRepository(dir)
         audio = FakeAudioToWav(dir)
         return DefaultProcessingController(audio, repository, transcriber, SpeechConfig(),
             foreground, wakeLock, StandardTestDispatcher(testScheduler), log = {}, microphone = microphone,
-            recordingTitle = { "Recording" })
+            recordingTitle = { "Recording" }, livePcm = livePcm)
+    }
+
+    private val liveAudio = LivePcmSource { _, _, committed -> flow {
+        emit(floatArrayOf(0.25f))
+        committed.await()
+    } }
+
+    @Test fun liveModeShowsDraftBeforeStopAndSavesFinalSpeakers() = runTest {
+        val draft = Segment(0, 0, 500, "Реплика.")
+        val final = draft.copy(speaker = 1)
+        transcriber.liveScript = { audio ->
+            audio.collect { emit(StreamingEvent.Utterance(draft)) }
+            emit(StreamingEvent.Done(listOf(final)))
+        }
+        val controller = controller(liveAudio)
+        foreground.promoted.complete(Unit)
+        val id = controller.startRecording()!!
+        advanceUntilIdle()
+        assertEquals(SessionStatus.RECORDING, repository.session(id).status)
+        assertEquals(listOf(draft), repository.segments(id))
+        controller.stopRecording(id)
+        advanceUntilIdle()
+        assertEquals(SessionStatus.DONE, repository.session(id).status)
+        assertEquals(listOf(final), repository.segments(id))
+        assertFalse(events.contains("transcribe"))
+        assertEquals(1, transcriber.loads)
+        assertEquals(1, transcriber.releases)
+        wakeLock.assertBalanced()
+    }
+
+    @Test fun deferredModeDoesNotLoadOrRecognizeUntilStop() = runTest {
+        val controller = controller(liveAudio)
+        foreground.promoted.complete(Unit)
+        val id = controller.startRecording(liveTranscription = false)!!
+        advanceUntilIdle()
+        assertEquals(0, transcriber.loads)
+        assertTrue(repository.segments(id).isEmpty())
+        controller.stopRecording(id)
+        advanceUntilIdle()
+        assertEquals(SessionStatus.DONE, repository.session(id).status)
+        assertTrue(events.contains("transcribe"))
+        assertFalse(events.contains("stream"))
+        wakeLock.assertBalanced()
+    }
+
+    @Test fun cancelLiveCaptureClearsDraftAndReleasesModels() = runTest {
+        transcriber.liveScript = {
+            emit(StreamingEvent.Utterance(Segment(0, 0, 500, "Реплика.")))
+            awaitCancellation()
+        }
+        val controller = controller(liveAudio)
+        foreground.promoted.complete(Unit)
+        val id = controller.startRecording()!!
+        advanceUntilIdle()
+        assertFalse(repository.segments(id).isEmpty())
+        controller.cancel(id)
+        advanceUntilIdle()
+        assertEquals(SessionStatus.CANCELLED, repository.session(id).status)
+        assertTrue(repository.segments(id).isEmpty())
+        assertNull(repository.session(id).wavFileName)
+        assertEquals(1, transcriber.releases)
+        wakeLock.assertBalanced()
+    }
+
+    @Test fun liveSpeechFailurePreservesWavForRetry() = runTest {
+        transcriber.liveScript = { emit(StreamingEvent.Failed(IllegalStateException("model failed"))) }
+        val controller = controller(liveAudio)
+        foreground.promoted.complete(Unit)
+        val id = controller.startRecording()!!
+        advanceUntilIdle()
+        assertEquals(SessionStatus.RECORDING, repository.session(id).status)
+        controller.stopRecording(id)
+        advanceUntilIdle()
+        val failed = repository.session(id)
+        assertEquals(ErrorCode.TRANSCRIPTION_FAILED, failed.errorCode)
+        assertTrue(repository.wavFile(checkNotNull(failed.wavFileName)).isFile)
+        controller.retry(id)
+        advanceUntilIdle()
+        assertEquals(SessionStatus.DONE, repository.session(id).status)
+        wakeLock.assertBalanced()
     }
 
     @Test fun stopWaitsForForegroundAndTranscribesBeforeQueuedImport() = runTest {

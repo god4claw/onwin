@@ -129,7 +129,7 @@ class WavWriter internal constructor(
         dataBytes += bytes
     }
 
-    private fun flushBuffer() {
+    internal fun flushBuffer() {
         buffer.flip()
         while (buffer.hasRemaining()) channel.write(buffer)
         buffer.clear()
