@@ -1,6 +1,7 @@
 package com.example.speech.impl
 
 import android.content.Context
+import android.util.Log
 import com.example.speech.api.Segment
 import com.example.speech.api.SpeechConfig
 import com.example.speech.api.StreamingEvent
@@ -27,14 +28,19 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Псевдостриминг v2: Silero VAD режет поток на реплики, после чего каждая
  * реплика распознаётся offline-моделью целиком.
  *
- * Это не настоящий streaming: промежуточных гипотез (`Partial`) здесь нет,
- * текст приходит только после конца реплики. Настоящий streaming появился в v3
- * (online-модель, `OnlineStream.acceptWaveform` + `decode`).
+ * Это не настоящий streaming: промежуточных гипотез здесь нет, текст приходит
+ * только после конца реплики. Настоящего streaming (online-модель,
+ * `OnlineStream.acceptWaveform` + `decode`) в модуле пока нет.
+ *
+ * Диагностика: `adb shell setprop log.tag.Speech DEBUG` включает подробный
+ * logcat (границы VAD, разрезы по смене спикера, время ASR и embedding,
+ * назначение кластера). Пишутся только тайминги и номера спикеров, без текста.
  *
  * Устройство:
  * - VAD-гейт принимает аудио и отдаёт готовые чанки;
@@ -176,21 +182,42 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                     minSegmentMs = config.speakerChangeMinSegmentMs,
                 ),
             )
+            val trace = debugTrace()
+            trace?.invoke(
+                "stream start threads=${config.numThreads} vad=${config.vad} " +
+                    "online=${config.onlineClusterThreshold} change=${config.speakerChangeThreshold} " +
+                    "prune=${config.clusterPruneMinMs}ms/${config.clusterPruneMinFraction}",
+            )
+            val streamStartedAt = System.nanoTime()
+
             val asr = AsrRunner(recognizer, VadSegmenter.SAMPLE_RATE)
             val processor = StreamingChunkProcessor(
                 transcribe = { samples -> asr.transcribe(samples) },
                 embeddingOf = { samples -> extractEmbedding(embedder, samples) },
                 clusterer = clusterer,
                 splitter = splitter,
+                trace = trace,
             )
 
             val queue = Channel<SpeechChunk>(capacity = ASR_QUEUE_CAPACITY)
+            // Сколько VAD-чанков ждёт ASR. Рост до ASR_QUEUE_CAPACITY значит, что
+            // распознавание не успевает за речью и скоро начнёт тормозить вход.
+            val pending = AtomicInteger(0)
+            suspend fun enqueue(chunk: SpeechChunk) {
+                val waiting = pending.incrementAndGet()
+                trace?.invoke(
+                    "vad chunk start=${chunk.startSample * 1000L / VadSegmenter.SAMPLE_RATE}ms " +
+                        "dur=${chunk.samples.size * 1000L / VadSegmenter.SAMPLE_RATE}ms pending=$waiting",
+                )
+                queue.send(chunk)
+            }
             val produced = ArrayList<Segment>()
             var workerFailure: Throwable? = null
 
             val worker = launch(Dispatchers.Default) {
                 try {
                     for (chunk in queue) {
+                        pending.decrementAndGet()
                         currentCoroutineContext().ensureActive()
 
                         // VAD-чанк может содержать несколько говорящих. Режем его
@@ -222,25 +249,30 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                         )
                     }
                     for (chunk in update.chunks) {
-                        chunk.trimmedTo(vad.receivedSamples)?.let { queue.send(it) }
+                        chunk.trimmedTo(vad.receivedSamples)?.let { enqueue(it) }
                     }
                 }
 
                 for (chunk in vad.flush()) {
-                    chunk.trimmedTo(vad.receivedSamples)?.let { queue.send(it) }
+                    chunk.trimmedTo(vad.receivedSamples)?.let { enqueue(it) }
                 }
                 queue.close()
                 worker.join()
 
                 val failure = workerFailure
                 if (failure != null) {
+                    trace?.invoke("stream failed: ${failure.javaClass.simpleName}")
                     send(StreamingEvent.Failed(failure))
                 } else {
-                    send(
-                        StreamingEvent.Done(
-                            pruneStreamingClusters(produced, config),
-                        ),
+                    val pruned = pruneStreamingClusters(produced, config)
+                    trace?.invoke(
+                        "stream done segments=${pruned.size} " +
+                            "speakers=${produced.map { it.speaker }.distinct().size}" +
+                            "->${pruned.map { it.speaker }.distinct().size} " +
+                            "audio=${vad.receivedSamples * 1000L / VadSegmenter.SAMPLE_RATE}ms " +
+                            "took=${(System.nanoTime() - streamStartedAt) / 1_000_000}ms",
                     )
+                    send(StreamingEvent.Done(pruned))
                 }
             } catch (c: CancellationException) {
                 queue.cancel()
@@ -321,7 +353,19 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
         loadedConfig = null
     }
 
+    /**
+     * Логгер для одной сессии или `null`, если debug-лог выключен. Проверка
+     * раз на сессию: `setprop` между сессиями подхватится без перезапуска.
+     */
+    private fun debugTrace(): ((String) -> Unit)? =
+        if (Log.isLoggable(LOG_TAG, Log.DEBUG)) {
+            { message -> Log.d(LOG_TAG, message) }
+        } else {
+            null
+        }
+
     private companion object {
+        const val LOG_TAG = "Speech"
         const val ASR_QUEUE_CAPACITY = 8
 
         const val MIN_NEW_SPEAKER_MS = 2_500

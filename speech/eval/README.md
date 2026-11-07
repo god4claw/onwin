@@ -16,6 +16,10 @@ complete_pears_parts.py    finish the missing Pear chunks with smaller ranges
 assemble_pears.py          concatenate the 16 Pear chunks
 make_pears_dev.py          cut 3-minute 3-speaker dev windows from Pear
 summarize_pears_sweep.py   threshold sweep report with DER on Pear dev
+make_golden.py             golden set for streaming tests from one synthetic shard
+score_wer.py               WER of a benchmark JSON against turns.jsonl / txt
+stream_report.py           one table: WER, DER, speaker error, latency, lag, RTF
+run_golden.sh              benchmark.sh over the whole golden set + report
 ```
 
 ## Datasets used
@@ -27,6 +31,47 @@ summarize_pears_sweep.py   threshold sweep report with DER on Pear dev
   `speakers[] = {speaker_id,start,end,text}`, overlap/noise flags, MIT.
 - `fixture_ru_dialogue.wav` — the repository's existing 46.8 s single-voice TTS
   fixture, used as a smoke test.
+
+## Golden set (streaming)
+
+Eight short synthetic conversations picked to cover what the app meets:
+2-speaker dialogue and interview, simultaneous speech, white and cafe noise,
+3- and 4-speaker groups, a monologue; plus `golden_long` (~6 min, all of them
+back to back) to check that streaming keeps up over time. The list and the
+reasons are in the `make_golden.py` docstring.
+
+```bash
+# one-time: a 77 MB shard of ivkond/synthetic-speech-diarization-ru (MIT)
+mkdir -p speech/eval/synthetic
+curl -L -o speech/eval/synthetic/train-00000-of-00030.parquet \
+  https://huggingface.co/datasets/ivkond/synthetic-speech-diarization-ru/resolve/main/train-00000-of-00030.parquet
+python -m venv .venv-eval && .venv-eval/bin/pip install numpy pyarrow
+.venv-eval/bin/python speech/eval/make_golden.py \
+  speech/eval/synthetic/train-00000-of-00030.parquet speech/eval/golden
+
+# run (emulator or phone connected); --pace 1 = real-time feed, measures latency
+bash speech/eval/run_golden.sh bench-results/golden/paced --mode streaming --pace 1 --runs 1
+# re-print the table later
+python3 speech/eval/stream_report.py bench-results/golden/paced --refs speech/eval/golden
+```
+
+WAV, `turns.jsonl` and `rttm` files are gitignored; only the scripts are in git.
+`score_wer.py`, `stream_report.py` and `run_golden.sh` need plain Python 3, no packages.
+
+Reading the table:
+
+- **WER** is speaker-agnostic, after normalization (lower case, ё→е, no
+  punctuation). The synthetic references spell numbers out and GigaAM writes
+  digits ("десять" vs "10"), so absolute WER is a bit pessimistic; comparisons
+  between configs are still fair. `score_wer.py --diff` shows the alignment.
+- **DER** on synthetic references is inflated: their turns run back to back
+  and cover pauses, so silence counts as missed speech. Use **spkErr** there —
+  the wrong-speaker share of the time where both sides have one speaker.
+  DER is meaningful on Pear Chats, whose turns come from word timestamps.
+- **lat50/lat90/latMax** — from the end of a phrase in the audio feed to its
+  text; only meaningful with `--pace 1`.
+- **lag** — how far the feed fell behind real time, i.e. audio a live
+  microphone would have to buffer. Anything above ~0 means ASR does not keep up.
 
 ## Benchmark commands
 

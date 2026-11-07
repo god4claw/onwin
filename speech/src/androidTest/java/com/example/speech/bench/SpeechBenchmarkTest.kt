@@ -8,9 +8,11 @@ import com.example.speech.api.SpeechConfig
 import com.example.speech.api.Stage
 import com.example.speech.api.StreamingEvent
 import com.example.speech.api.TranscriptionEvent
+import com.example.speech.api.VadConfig
 import com.example.speech.audio.WavReader
 import com.example.speech.impl.SherpaStreamingTranscriber
 import com.example.speech.impl.SherpaTranscriber
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
@@ -19,6 +21,8 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicLongArray
+import kotlin.math.roundToLong
 
 @RunWith(AndroidJUnit4::class)
 class SpeechBenchmarkTest {
@@ -48,6 +52,15 @@ class SpeechBenchmarkTest {
         val speakerChangeThreshold = threshold(
             "speaker_change_threshold",
             defaults.speakerChangeThreshold,
+        )
+        // 0 — подавать аудио так быстро, как примет транскрайбер (пропускная
+        // способность); 1 — в реальном темпе, как живой микрофон (задержки).
+        val pace = nonNegativeFloat("pace", 0f)
+        val vad = VadConfig(
+            threshold = threshold("vad_threshold", defaults.vad.threshold),
+            minSilenceMs = nonNegativeInt("vad_min_silence_ms", defaults.vad.minSilenceMs),
+            minSpeechMs = nonNegativeInt("vad_min_speech_ms", defaults.vad.minSpeechMs),
+            maxSpeechMs = positiveInt("vad_max_speech_ms", defaults.vad.maxSpeechMs),
         )
 
         val speakersArg = args.getString("speakers")
@@ -83,6 +96,8 @@ class SpeechBenchmarkTest {
             clusterPruneMinMs = pruneMinMs,
             clusterPruneMinFraction = pruneMinFraction,
             speakerChangeThreshold = speakerChangeThreshold,
+            pace = pace,
+            vad = vad,
         )
 
         val batch = if (mode == "batch" || mode == "both") {
@@ -110,6 +125,8 @@ class SpeechBenchmarkTest {
                 pruneMinMs = pruneMinMs,
                 pruneMinFraction = pruneMinFraction,
                 speakerChangeThreshold = speakerChangeThreshold,
+                vad = vad,
+                pace = pace,
             )
         } else {
             null
@@ -236,6 +253,8 @@ class SpeechBenchmarkTest {
         pruneMinMs: Int,
         pruneMinFraction: Float,
         speakerChangeThreshold: Float,
+        vad: VadConfig,
+        pace: Float,
     ): StreamingResult {
         val transcriber = SherpaStreamingTranscriber(context)
         val loadStart = SystemClock.elapsedRealtime()
@@ -247,6 +266,7 @@ class SpeechBenchmarkTest {
                     clusterPruneMinMs = pruneMinMs,
                     clusterPruneMinFraction = pruneMinFraction,
                     speakerChangeThreshold = speakerChangeThreshold,
+                    vad = vad,
                 ),
             )
             val modelLoadMs = SystemClock.elapsedRealtime() - loadStart
@@ -258,6 +278,7 @@ class SpeechBenchmarkTest {
                     audioMs = audioMs,
                     index = index + 1,
                     chunkMs = chunkMs,
+                    pace = pace,
                 )
             }
             return StreamingResult(modelLoadMs = modelLoadMs, runs = results)
@@ -272,34 +293,81 @@ class SpeechBenchmarkTest {
         audioMs: Long,
         index: Int,
         chunkMs: Int,
+        pace: Float,
     ): StreamingRun {
-        val startedAt = SystemClock.elapsedRealtime()
+        val chunkSize = (BENCHMARK_SAMPLE_RATE * chunkMs / 1000).coerceAtLeast(1)
+        val chunkCount = (samples.size + chunkSize - 1) / chunkSize
+        // Когда каждый чанк ушёл в транскрайбер, мс от старта прогона. По нему
+        // считается задержка: «конец фразы в аудио был подан» → «пришёл текст».
+        val fedAt = AtomicLongArray(chunkCount)
+        // Насколько подача отстала от расписания реального времени. Это аудио,
+        // которое живому микрофону пришлось бы где-то буферизовать.
+        val maxFeedLagMs = AtomicLong(0L)
         val feedEndAt = AtomicLong(0L)
         var firstSpeechAt = 0L
         var firstUtteranceAt = 0L
         var doneAt = 0L
         var segments = emptyList<Segment>()
+        val events = ArrayList<StreamingEventRecord>()
 
-        val chunkSize = (BENCHMARK_SAMPLE_RATE * chunkMs / 1000).coerceAtLeast(1)
+        fun fedAtMs(audioPositionMs: Long): Long {
+            val sample = (audioPositionMs * BENCHMARK_SAMPLE_RATE / 1000L - 1L).coerceAtLeast(0L)
+            val chunk = (sample / chunkSize).toInt().coerceIn(0, chunkCount - 1)
+            return fedAt.get(chunk)
+        }
+
+        val startedAt = SystemClock.elapsedRealtime()
         val audio = flow {
             var offset = 0
+            var chunkIndex = 0
             while (offset < samples.size) {
                 val end = minOf(offset + chunkSize, samples.size)
+                if (pace > 0f) {
+                    // Микрофон отдаёт кусок [offset, end) не раньше, чем он «прозвучал».
+                    val dueAt = startedAt +
+                        (end * 1000.0 / BENCHMARK_SAMPLE_RATE / pace).roundToLong()
+                    val now = SystemClock.elapsedRealtime()
+                    if (dueAt > now) {
+                        delay(dueAt - now)
+                    } else {
+                        maxFeedLagMs.accumulateAndGet(now - dueAt) { a, b -> maxOf(a, b) }
+                    }
+                }
+                fedAt.set(chunkIndex, SystemClock.elapsedRealtime() - startedAt)
                 emit(samples.copyOfRange(offset, end))
                 offset = end
+                chunkIndex++
             }
             feedEndAt.set(SystemClock.elapsedRealtime() - startedAt)
         }
 
         transcriber.transcribeStream(audio).collect { event ->
             val now = SystemClock.elapsedRealtime()
+            val atMs = now - startedAt
             when (event) {
                 is StreamingEvent.SpeechStarted -> {
-                    if (firstSpeechAt == 0L) firstSpeechAt = now - startedAt
+                    if (firstSpeechAt == 0L) firstSpeechAt = atMs
+                    events += StreamingEventRecord(
+                        type = "speech",
+                        atMs = atMs,
+                        startMs = event.startMs,
+                        endMs = null,
+                        speaker = null,
+                        latencyMs = atMs - fedAtMs(event.startMs),
+                    )
                 }
 
                 is StreamingEvent.Utterance -> {
-                    if (firstUtteranceAt == 0L) firstUtteranceAt = now - startedAt
+                    if (firstUtteranceAt == 0L) firstUtteranceAt = atMs
+                    val segment = event.segment
+                    events += StreamingEventRecord(
+                        type = "utterance",
+                        atMs = atMs,
+                        startMs = segment.startMs,
+                        endMs = segment.endMs,
+                        speaker = segment.speaker,
+                        latencyMs = atMs - fedAtMs(segment.endMs),
+                    )
                 }
 
                 is StreamingEvent.Done -> {
@@ -323,9 +391,11 @@ class SpeechBenchmarkTest {
             drainMs = (totalMs - feedMs).coerceAtLeast(0L),
             firstSpeechMs = firstSpeechAt,
             firstUtteranceMs = firstUtteranceAt,
+            maxFeedLagMs = maxFeedLagMs.get(),
             pssMb = currentPssMb(context),
             nativeHeapMb = nativeHeapMb(),
             segments = segments,
+            events = events,
         )
     }
 
@@ -346,6 +416,14 @@ class SpeechBenchmarkTest {
         val value = raw.toIntOrNull()
             ?: error("$name должен быть целым числом, получено: $raw")
         require(value >= 0) { "$name должен быть >= 0, получено: $value" }
+        return value
+    }
+
+    private fun nonNegativeFloat(name: String, default: Float): Float {
+        val raw = args.getString(name)?.takeIf { it.isNotBlank() } ?: return default
+        val value = raw.toFloatOrNull()
+            ?: error("$name должен быть числом, получено: $raw")
+        require(value >= 0f && value.isFinite()) { "$name должен быть >= 0, получено: $value" }
         return value
     }
 

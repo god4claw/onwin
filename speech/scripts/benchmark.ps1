@@ -33,6 +33,23 @@ param(
     [ValidateRange(0.0, 1.0)]
     [double]$SpeakerChangeThreshold = 0.65,
 
+    # Скорость подачи в streaming: 0 — без пауз, 1 — реальное время (задержки).
+    [ValidateRange(0.0, 100.0)]
+    [double]$Pace = 0.0,
+
+    # VAD: -1 — не передавать, тест возьмёт VadConfig по умолчанию.
+    [ValidateRange(-1.0, 1.0)]
+    [double]$VadThreshold = -1.0,
+
+    [ValidateRange(-1, 600000)]
+    [int]$VadMinSilenceMs = -1,
+
+    [ValidateRange(-1, 600000)]
+    [int]$VadMinSpeechMs = -1,
+
+    [ValidateRange(-1, 600000)]
+    [int]$VadMaxSpeechMs = -1,
+
     [string]$Serial = "",
 
     [string]$OutDir = "bench-results",
@@ -163,12 +180,19 @@ $autoThresholdText = $AutoThreshold.ToString($invariant)
 $onlineThresholdText = $OnlineThreshold.ToString($invariant)
 $pruneFractionText = $PruneMinFraction.ToString($invariant)
 $speakerChangeText = $SpeakerChangeThreshold.ToString($invariant)
+$paceText = $Pace.ToString($invariant)
+
+$optionalArgs = @()
+if ($VadThreshold -ge 0) { $optionalArgs += @("-e", "vad_threshold", $VadThreshold.ToString($invariant)) }
+if ($VadMinSilenceMs -ge 0) { $optionalArgs += @("-e", "vad_min_silence_ms", "$VadMinSilenceMs") }
+if ($VadMinSpeechMs -ge 0) { $optionalArgs += @("-e", "vad_min_speech_ms", "$VadMinSpeechMs") }
+if ($VadMaxSpeechMs -ge 0) { $optionalArgs += @("-e", "vad_max_speech_ms", "$VadMaxSpeechMs") }
 
 # Путь к результату обязан быть путём на устройстве: хост-путь (C:\...) даёт EROFS.
 Write-Host (
     "Running benchmark (mode=$Mode, runs=$Runs, threads=$Threads, " +
     "auto=$autoThresholdText, online=$onlineThresholdText, " +
-    "prune=$PruneMinMs/$pruneFractionText, change=$speakerChangeText)..."
+    "prune=$PruneMinMs/$pruneFractionText, change=$speakerChangeText, pace=$paceText)..."
 )
 $instrumentArgs = @(
     "shell", "am", "instrument", "-w", "-r",
@@ -185,6 +209,8 @@ $instrumentArgs = @(
     "-e", "prune_min_ms", "$PruneMinMs",
     "-e", "prune_min_fraction", $pruneFractionText,
     "-e", "speaker_change_threshold", $speakerChangeText,
+    "-e", "pace", $paceText
+) + $optionalArgs + @(
     "-e", "out", $remoteJson,
     "$package/androidx.test.runner.AndroidJUnitRunner"
 )
@@ -197,7 +223,10 @@ $instrumentOutput |
 
 if ($instrumentText -match "FAILURES!!!" -or
     $instrumentText -match "Tests run:.*Failures: [1-9]" -or
-    $instrumentText -match "INSTRUMENTATION_STATUS_CODE: -2") {
+    $instrumentText -match "INSTRUMENTATION_STATUS_CODE: -2" -or
+    # Нативный SIGSEGV убивает процесс: FAILURES не пишется, а am instrument
+    # всё равно завершается с кодом 0.
+    $instrumentText -match "INSTRUMENTATION_RESULT: shortMsg=") {
     throw "Instrumentation failed.`n$instrumentText"
 }
 
@@ -229,6 +258,13 @@ function Get-DeviceFile {
     $psi.RedirectStandardError = $true
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
+    # adb exec-out не передаёт код возврата удалённой команды: сначала проверяем,
+    # что файл есть, иначе текст «No such file» молча попал бы в локальный .json.
+    try {
+        Invoke-Adb @("shell", "run-as", $package, "test", "-f", $RemotePath) | Out-Null
+    } catch {
+        throw "Результат $RemotePath не найден на устройстве: бенчмарк не завершился."
+    }
     $arguments = @($adbArgs) + @("exec-out", "run-as", $package, "cat", $RemotePath)
     $psi.Arguments = ($arguments | ForEach-Object {
             if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
