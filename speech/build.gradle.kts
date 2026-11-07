@@ -15,24 +15,26 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        // JNI-классы sherpa-onnx нельзя переименовывать в release-сборке приложения.
         consumerProguardFiles("consumer-rules.pro")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
     androidResources {
         noCompress += listOf("onnx", "txt")
     }
 }
 
 dependencies {
-    implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.sherpa.onnx)
-    implementation(libs.androidx.appcompat)
+    implementation("com.k2fsa.sherpa.onnx:sherpa-onnx:1.13.0")
+
     implementation(libs.androidx.core.ktx)
-    implementation(libs.material)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
@@ -82,8 +84,8 @@ tasks.register("verifyBundledModels") {
                     if (actual != expected) {
                         logger.error(
                             "SHA-256 не совпал: ${file.path}\n" +
-                                    "  ожидался: $expected\n" +
-                                    "  получен:  $actual"
+                                "  ожидался: $expected\n" +
+                                "  получен:  $actual",
                         )
                         failures++
                     }
@@ -93,7 +95,7 @@ tasks.register("verifyBundledModels") {
         if (failures > 0) {
             throw GradleException(
                 "Не хватает $failures файлов моделей. Скачайте speech-models-v1.zip " +
-                        "из GitHub Releases и распакуйте в speech/src/main/assets/."
+                    "из GitHub Releases и распакуйте в speech/src/main/assets/.",
             )
         }
         logger.lifecycle("Bundled models: OK ($checked файлов)")

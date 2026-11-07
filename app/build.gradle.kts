@@ -1,10 +1,15 @@
+import com.android.build.api.variant.HostTestBuilder
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.androidx.baselineprofile)
 }
+
+val profileAbi = if (providers.gradleProperty("onwinProfileX86").orNull == "true") "x86_64" else "arm64-v8a"
 
 android {
     namespace = "com.example.onwin"
@@ -19,13 +24,9 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        ndk {
-            //noinspection ChromeOsAbiSupport
-            abiFilters += "arm64-v8a"
-        }
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
+        // LongInputTest нужны часовые файлы на устройстве (scripts/push_long_audio.sh),
+        // поэтому он идёт только с -PlongAudioTests=true.
         if (providers.gradleProperty("longAudioTests").orNull != "true") {
             testInstrumentationRunnerArguments["notClass"] = "com.example.onwin.data.audio.LongInputTest"
         }
@@ -34,8 +35,23 @@ android {
     buildTypes {
         release {
             optimization {
-                enable = false
+                enable = true
             }
+        }
+        // Instrumentation must not replace an installed copy of the app or its data.
+        create("nonMinifiedRelease") {
+            applicationIdSuffix = ".profile"
+            matchingFallbacks += "release"
+            optimization { enable = false }
+        }
+        create("benchmarkRelease") {
+            applicationIdSuffix = ".profile"
+            matchingFallbacks += "release"
+            optimization { enable = true }
+        }
+        configureEach {
+            //noinspection ChromeOsAbiSupport
+            ndk.abiFilters += if (name == "nonMinifiedRelease") profileAbi else "arm64-v8a"
         }
     }
     compileOptions {
@@ -50,6 +66,15 @@ android {
     }
 }
 
+baselineProfile {
+    saveInSrc = true
+    automaticGenerationDuringBuild = false
+}
+
+androidComponents.beforeVariants(androidComponents.selector().withBuildType("release")) {
+    it.hostTests.getValue(HostTestBuilder.UNIT_TEST_TYPE).enable = true
+}
+
 ksp {
     // Схема Room хранится в репозитории: по ней пишутся и проверяются миграции.
     arg("room.schemaLocation", "$projectDir/schemas")
@@ -57,6 +82,8 @@ ksp {
 
 dependencies {
     implementation(project(":speech"))
+    baselineProfile(project(":baselineprofile"))
+    implementation(libs.androidx.profileinstaller)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
