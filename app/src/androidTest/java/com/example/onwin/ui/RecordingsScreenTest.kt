@@ -1,19 +1,23 @@
 package com.example.onwin.ui
 
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.onwin.R
 import com.example.onwin.domain.model.Session
@@ -23,9 +27,14 @@ import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.ProcessingState
 import com.example.onwin.domain.processing.RecordingPhase
 import com.example.onwin.domain.processing.RecordingState
+import com.example.onwin.ui.navigation.NavigationPanelSlot
+import com.example.onwin.ui.navigation.NavigationPanelTag
+import com.example.onwin.ui.navigation.NavigationPanels
+import com.example.onwin.ui.navigation.OnWinNavigationLayout
 import com.example.onwin.ui.screens.recordings.RecordingsScreen
 import com.example.onwin.ui.screens.recordings.RecordingsUiState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -144,6 +153,64 @@ class RecordingsScreenTest {
         compose.onNodeWithText("Запись 4").assertIsDisplayed()
         compose.onNodeWithText("Свернуть записи").assertIsDisplayed()
         compose.onNodeWithText("Запишите аудио или\nимпортируйте его").assertDoesNotExist()
+    }
+
+    @Test
+    fun transcriptionSwitchFollowsSharedPanelAndStaysTappableOverExpandedList() {
+        val state = RecordingsUiState(sessions = recordingItems(12).map {
+            it.copy(session = it.session.copy(status = SessionStatus.DONE))
+        })
+        val checked = mutableStateOf(true)
+        var opened: String? = null
+        compose.setContent {
+            val panels = remember { NavigationPanels() }
+            val slot = remember(panels) { NavigationPanelSlot(panels, "recordings") }
+            OnWinNavigationLayout(panels, "recordings") { modifier ->
+                RecordingsScreen(
+                    modifier = modifier,
+                    panelSlot = slot,
+                    state = state,
+                    onOpen = { opened = it },
+                    onDelete = {},
+                    onRename = {},
+                    onRecord = {},
+                    onImport = {},
+                    onStopRecording = {},
+                    liveTranscription = checked.value,
+                    onLiveTranscriptionChange = { checked.value = it },
+                )
+            }
+        }
+
+        val label = "Расшифровка во время записи"
+        val mode = compose.onNodeWithContentDescription(label)
+        val panel = compose.onNodeWithTag(NavigationPanelTag)
+        val initialSwitch = mode.getUnclippedBoundsInRoot()
+        val initialPanel = panel.getUnclippedBoundsInRoot()
+        val gap = initialPanel.top - initialSwitch.bottom
+        assertTrue(gap in 4.dp..24.dp)
+        assertTrue(initialPanel.right - initialSwitch.right in 12.dp..40.dp)
+
+        compose.onNodeWithText("Все записи").performTouchInput { click() }
+        mode.assertIsDisplayed()
+        val expandedSwitch = mode.getUnclippedBoundsInRoot()
+        val expandedPanel = panel.getUnclippedBoundsInRoot()
+        val labelBounds = compose.onNodeWithText(label).getUnclippedBoundsInRoot()
+        assertTrue(expandedSwitch.top > initialSwitch.top)
+        assertEquals(gap.value, (expandedPanel.top - expandedSwitch.bottom).value, 1f)
+        assertEquals(initialSwitch.right.value, expandedSwitch.right.value, 1f)
+        assertTrue(labelBounds.right <= expandedSwitch.left)
+        assertEquals(
+            (expandedSwitch.top + expandedSwitch.bottom).value / 2,
+            (labelBounds.top + labelBounds.bottom).value / 2,
+            1f,
+        )
+        assertTrue(compose.onNode(hasScrollAction()).getUnclippedBoundsInRoot().bottom > expandedSwitch.top)
+        mode.assertIsOn().performTouchInput { click() }
+        mode.assertIsOff()
+        compose.runOnIdle { assertEquals(null, opened) }
+        compose.onNodeWithText("Свернуть записи").performTouchInput { click() }
+        assertEquals(initialSwitch.top.value, mode.getUnclippedBoundsInRoot().top.value, 1f)
     }
 
     @Test

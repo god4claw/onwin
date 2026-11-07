@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -33,6 +34,7 @@ internal fun RecordingsList(
     expanded: Boolean,
     viewportHeight: Dp,
     cardHeight: Dp,
+    bottomOverlayHeight: Dp,
     onToggle: () -> Unit,
     onOpen: (String) -> Unit,
     onDelete: (String) -> Unit,
@@ -60,10 +62,15 @@ internal fun RecordingsList(
         label = "recordings list height",
     )
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
+        val listHeight = minOf(maxHeight, heightLimit)
+        // Keep the toggle tappable and let the final card scroll clear of the overlay.
+        val overlayInset = (bottomOverlayHeight - (maxHeight - listHeight)).coerceAtLeast(0.dp)
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxWidth().heightIn(max = minOf(maxHeight, heightLimit)),
-            contentPadding = PaddingValues(bottom = bottomPadding),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = listHeight),
+            contentPadding = PaddingValues(bottom = bottomPadding + overlayInset),
             verticalArrangement = Arrangement.spacedBy(CardGap),
         ) {
             itemsIndexed(visibleSessions, key = { _, item -> item.session.id }) { index, item ->
@@ -92,7 +99,10 @@ internal fun RecordingsList(
         if (hasToggle) {
             GlassButton(
                 text = stringResource(if (expanded) R.string.recordings_collapse else R.string.recordings_all),
-                modifier = Modifier.widthIn(min = 136.dp).heightIn(min = 40.dp),
+                modifier = Modifier
+                    .padding(bottom = overlayInset)
+                    .widthIn(min = 136.dp)
+                    .heightIn(min = 40.dp),
                 onClick = {
                     if (expanded) listState.requestScrollToItem(0)
                     onToggle()

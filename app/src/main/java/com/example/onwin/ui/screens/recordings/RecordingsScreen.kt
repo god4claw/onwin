@@ -2,6 +2,7 @@ package com.example.onwin.ui.screens.recordings
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -28,10 +29,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -90,6 +94,9 @@ internal fun RecordingsScreen(
     val savingRecording = recording?.phase == RecordingPhase.STOPPING ||
         (recording == null && state.sessions.any { it.session.status == SessionStatus.RECORDING })
 
+    var switchOverlayHeightPx by remember { mutableStateOf(0) }
+    val switchOverlayHeight = with(LocalDensity.current) { switchOverlayHeightPx.toDp() }
+
     RecordingsTheme {
         OnWinScreenLayout(
             modifier = modifier,
@@ -115,64 +122,73 @@ internal fun RecordingsScreen(
         ) { viewport ->
             val compact = viewport.isCompact
             val safeTop = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
-            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = stringResource(R.string.sessions_title),
-                    modifier = Modifier
-                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                        .padding(top = maxOf(safeTop, if (compact) 28.dp else 40.dp), start = 24.dp, end = 24.dp)
-                        .semantics { heading() },
-                    color = MaterialTheme.colorScheme.onBackground,
-                    style = MaterialTheme.typography.headlineLarge,
-                )
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .widthIn(max = 600.dp)
-                        .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                        .padding(start = 22.dp, end = 22.dp, top = if (compact) 24.dp else 35.dp),
-                ) {
-                    val liveLabel = stringResource(R.string.recordings_live_transcription)
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+            Box(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = stringResource(R.string.sessions_title),
+                        modifier = Modifier
+                            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                            .padding(top = maxOf(safeTop, if (compact) 28.dp else 40.dp), start = 24.dp, end = 24.dp)
+                            .semantics { heading() },
+                        color = MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.headlineLarge,
+                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .widthIn(max = 600.dp)
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                            .padding(start = 22.dp, end = 22.dp, top = if (compact) 24.dp else 35.dp),
                     ) {
-                        Text(
-                            text = liveLabel,
-                            modifier = Modifier.weight(1f).padding(end = 12.dp),
-                            color = MaterialTheme.colorScheme.onBackground,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Switch(
-                            checked = liveTranscription,
-                            onCheckedChange = onLiveTranscriptionChange,
-                            enabled = recording == null && !state.startingRecording && !savingRecording,
-                            modifier = Modifier.semantics { contentDescription = liveLabel },
-                        )
+                        if (state.sessions.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.recordings_empty),
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.onBackground,
+                                style = MaterialTheme.typography.bodySmall,
+                                textAlign = TextAlign.Center,
+                            )
+                        } else {
+                            RecordingsList(
+                                state = state,
+                                expanded = listExpanded,
+                                viewportHeight = viewport.height,
+                                cardHeight = if (compact) 68.dp else 79.dp,
+                                bottomOverlayHeight = (switchOverlayHeight - listPanelGap).coerceAtLeast(0.dp),
+                                onToggle = { expanded = !listExpanded },
+                                onOpen = onOpen,
+                                onDelete = onDelete,
+                                onRename = onRename,
+                            )
+                        }
                     }
-                    if (state.sessions.isEmpty()) {
-                        Text(
-                            text = stringResource(R.string.recordings_empty),
-                            modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.onBackground,
-                            style = MaterialTheme.typography.bodySmall,
-                            textAlign = TextAlign.Center,
-                        )
-                    } else {
-                        RecordingsList(
-                            state = state,
-                            expanded = listExpanded,
-                            viewportHeight = viewport.height,
-                            cardHeight = if (compact) 68.dp else 79.dp,
-                            onToggle = { expanded = !listExpanded },
-                            onOpen = onOpen,
-                            onDelete = onDelete,
-                            onRename = onRename,
-                        )
-                    }
+                    Spacer(Modifier.height(listPanelGap))
                 }
-                Spacer(Modifier.height(listPanelGap))
+                val liveLabel = stringResource(R.string.recordings_live_transcription)
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .onSizeChanged { switchOverlayHeightPx = it.height }
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                        .padding(start = 22.dp, end = 22.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = liveLabel,
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .padding(end = 8.dp),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Switch(
+                        checked = liveTranscription,
+                        onCheckedChange = onLiveTranscriptionChange,
+                        enabled = recording == null && !state.startingRecording && !savingRecording,
+                        modifier = Modifier.semantics { contentDescription = liveLabel },
+                    )
+                }
             }
         }
     }
@@ -197,7 +213,9 @@ private fun capturePanel(
     heading = if (expanded) null else panelElement(R.string.recordings_capture_title) {
         Text(
             text = stringResource(R.string.recordings_capture_title),
-            modifier = Modifier.padding(bottom = if (compact) 22.dp else 28.dp).semantics { heading() },
+            modifier = Modifier
+                .padding(bottom = if (compact) 22.dp else 28.dp)
+                .semantics { heading() },
             style = MaterialTheme.typography.headlineMedium.let {
                 if (compact) it.copy(fontSize = 27.sp, lineHeight = 32.94.sp) else it
             },
@@ -215,14 +233,19 @@ private fun capturePanel(
             text = stringResource(R.string.recordings_import_device),
             onClick = onImport,
             enabled = canImport && interactive,
-            modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth().heightIn(min = 47.dp),
+            modifier = Modifier
+                .widthIn(max = 480.dp)
+                .fillMaxWidth()
+                .heightIn(min = 47.dp),
             textStyle = MaterialTheme.typography.labelLarge,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
             leadingIcon = {
                 if (importing) {
                     val label = stringResource(R.string.recordings_importing)
                     CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp).semantics { contentDescription = label },
+                        modifier = Modifier
+                            .size(20.dp)
+                            .semantics { contentDescription = label },
                         strokeWidth = 2.dp,
                     )
                 } else {
