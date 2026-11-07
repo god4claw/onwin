@@ -28,17 +28,21 @@ class OnDeviceLlm private constructor(
         /** Каталог с моделью внутри filesDir приложения. */
         const val MODEL_DIR_NAME = "llm"
 
-        /** Бюджет на одну реплику: финальный проход, спешить некуда. */
-        const val CORRECTION_BUDGET_MS = 5_000L
+        /**
+         * Бюджет на одну реплику. Финальный проход, спешить некуда; на телефоне
+         * 0,5B отвечает за секунды, на x86_64-эмуляторе — заметно медленнее,
+         * поэтому бюджет с запасом: лучше медленно, чем без коррекции.
+         */
+        const val CORRECTION_BUDGET_MS = 20_000L
 
         /** Потолок ответа при правке: реплика в 30 с — 25–40 токенов. */
-        const val CORRECTION_MAX_TOKENS = 96
+        const val CORRECTION_MAX_TOKENS = 48
 
         /** Бюджет на один запрос анализа: весь диалог или его кусок. */
-        const val ANALYSIS_BUDGET_MS = 20_000L
+        const val ANALYSIS_BUDGET_MS = 45_000L
 
         /** Потолок ответа анализа: имена спикеров и резюме на 3–5 предложений. */
-        const val ANALYSIS_MAX_TOKENS = 320
+        const val ANALYSIS_MAX_TOKENS = 160
 
         /** Каталог с готовым комплектом ONNX GenAI или `null`, если модели нет. */
         fun modelDirectory(context: Context): File? =
