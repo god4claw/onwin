@@ -1,7 +1,7 @@
 package com.example.speech.impl
 
 import com.example.speech.api.Segment
-import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -73,8 +73,9 @@ internal class SpeakerReclusterer(
         val labelOf = HashMap<Int, Int>(records.size)
         clusters.forEachIndexed { label, cluster -> cluster.members.forEach { labelOf[it] = label } }
 
+        val timeIndex by lazy { TimeIndex(records, withEmbedding) }
         val raw = IntArray(records.size) { index ->
-            labelOf[index] ?: labelOf.getValue(nearestInTime(records, index, withEmbedding))
+            labelOf[index] ?: labelOf.getValue(timeIndex.nearest(centerOf(records[index])))
         }
         val order = HashMap<Int, Int>()
         return records.mapIndexed { index, record ->
@@ -85,63 +86,100 @@ internal class SpeakerReclusterer(
     private class Cluster(val sum: FloatArray, val members: MutableList<Int>)
 
     /**
-     * По одному кластеру на реплику. На очень длинной сессии (больше
-     * [maxItems] реплик) соседние реплики с одной онлайн-меткой сначала
-     * склеиваются, чтобы кластеризация оставалась быстрой (O(n²) на слияние).
+     * По одному кластеру на реплику. На длинной сессии (больше [maxItems]
+     * реплик — это час-полтора речи) реплики сначала кластеризуются блоками
+     * подряд идущих: внутри блока сливаются самые похожие, пока блок не сожмётся
+     * до своей доли от [maxItems]. Глобальная кластеризация остаётся быстрой, а в
+     * один кластер не попадают разные люди (раньше на длинной записи соседи
+     * склеивались по онлайн-меткам, а при их чередовании — просто подряд).
      */
     private fun initialClusters(records: List<SegmentRecord>, indices: List<Int>): MutableList<Cluster> {
-        val clusters = indices.map { index ->
+        var clusters = indices.map { index ->
             Cluster(weighted(records[index]), mutableListOf(index))
         }.toMutableList()
         while (clusters.size > maxItems) {
-            var merged = false
-            var i = 0
-            while (i < clusters.size - 1 && clusters.size > maxItems) {
-                val left = clusters[i]
-                val right = clusters[i + 1]
-                if (records[left.members.last()].segment.speaker == records[right.members.first()].segment.speaker) {
-                    addInto(left, right)
-                    clusters.removeAt(i + 1)
-                    merged = true
-                } else {
-                    i++
-                }
+            val blocks = clusters.chunked(maxItems)
+            val perBlock = max(1, maxItems / blocks.size)
+            val next = ArrayList<Cluster>(maxItems)
+            for (block in blocks) {
+                val merged = block.toMutableList()
+                mergeUntil(merged, perBlock)
+                next += merged
             }
-            if (!merged) {
-                // Онлайн-метки чередуются каждую реплику: склеиваем просто соседей.
-                var j = 0
-                while (j < clusters.size - 1 && clusters.size > maxItems) {
-                    addInto(clusters[j], clusters[j + 1])
-                    clusters.removeAt(j + 1)
-                    j++
-                }
-            }
+            clusters = next
         }
         return clusters
     }
 
     private fun mergeWhileSimilar(clusters: MutableList<Cluster>) = mergeUntil(clusters, 1, mergeThreshold)
 
-    /** Сливает самую похожую пару, пока кластеров больше [target] и сходство ≥ [minSimilarity]. */
+    /**
+     * Сливает самую похожую пару, пока кластеров больше [target] и сходство ≥ [minSimilarity].
+     *
+     * Пара — первая по порядку `(a < b)` с максимальным косинусом; `b` вливается в `a`.
+     * Сходства пар кешируются, у каждой строки `a` хранится лучший партнёр `b > a`:
+     * после слияния пересчитываются строка `a` и строки, чей партнёр был `a` или `b`.
+     * Итог тот же, что у полного перебора пар на каждом шаге, но без O(n³·dim).
+     */
     private fun mergeUntil(clusters: MutableList<Cluster>, target: Int, minSimilarity: Float = -2f) {
-        while (clusters.size > target) {
-            var bestA = -1
-            var bestB = -1
-            var best = -2f
-            for (a in 0 until clusters.size - 1) {
-                for (b in a + 1 until clusters.size) {
-                    val similarity = cosine(clusters[a].sum, clusters[b].sum)
-                    if (similarity > best) {
-                        best = similarity
-                        bestA = a
-                        bestB = b
-                    }
+        val n = clusters.size
+        if (n <= target) return
+        val alive = BooleanArray(n) { true }
+        val norm = DoubleArray(n) { normOf(clusters[it].sum) }
+        val sim = Array(n) { FloatArray(n) }
+        for (a in 0 until n) {
+            for (b in a + 1 until n) sim[a][b] = cosine(clusters[a].sum, norm[a], clusters[b].sum, norm[b])
+        }
+        val bestSim = FloatArray(n)
+        val bestOf = IntArray(n)
+        fun recomputeRow(a: Int) {
+            var best = -3f
+            var partner = -1
+            for (b in a + 1 until n) {
+                if (alive[b] && sim[a][b] > best) {
+                    best = sim[a][b]
+                    partner = b
                 }
             }
-            if (best < minSimilarity) return
-            addInto(clusters[bestA], clusters[bestB])
-            clusters.removeAt(bestB)
+            bestSim[a] = best
+            bestOf[a] = partner
         }
+        for (a in 0 until n) recomputeRow(a)
+
+        var count = n
+        while (count > target) {
+            var a = -1
+            for (row in 0 until n) {
+                if (alive[row] && bestOf[row] >= 0 && (a < 0 || bestSim[row] > bestSim[a])) a = row
+            }
+            if (a < 0 || bestSim[a] < minSimilarity) break
+            val b = bestOf[a]
+            addInto(clusters[a], clusters[b])
+            alive[b] = false
+            count--
+            norm[a] = normOf(clusters[a].sum)
+            for (k in 0 until n) {
+                if (!alive[k] || k == a) continue
+                val value = cosine(clusters[a].sum, norm[a], clusters[k].sum, norm[k])
+                if (k < a) sim[k][a] = value else sim[a][k] = value
+            }
+            recomputeRow(a)
+            for (k in 0 until a) {
+                if (!alive[k]) continue
+                if (bestOf[k] == a || bestOf[k] == b) {
+                    recomputeRow(k)
+                } else if (sim[k][a] > bestSim[k] || (sim[k][a] == bestSim[k] && a < bestOf[k])) {
+                    bestSim[k] = sim[k][a]
+                    bestOf[k] = a
+                }
+            }
+            for (k in a + 1 until b) {
+                if (alive[k] && bestOf[k] == b) recomputeRow(k)
+            }
+        }
+        val survivors = clusters.filterIndexed { index, _ -> alive[index] }
+        clusters.clear()
+        clusters += survivors
     }
 
     private fun absorbSmallClusters(clusters: MutableList<Cluster>, records: List<SegmentRecord>) {
@@ -178,10 +216,38 @@ internal class SpeakerReclusterer(
         }
     }
 
-    private fun nearestInTime(records: List<SegmentRecord>, index: Int, candidates: List<Int>): Int {
-        val center = records[index].segment.let { it.startMs + it.endMs }
-        return candidates.minBy { other ->
-            abs(records[other].segment.let { it.startMs + it.endMs } - center)
+    /**
+     * Ближайшая по времени реплика с embedding: минимум |Δцентра|, при равенстве —
+     * меньший индекс. Двоичный поиск, чтобы на длинной сессии не было O(n²).
+     */
+    private class TimeIndex(records: List<SegmentRecord>, candidates: List<Int>) {
+        private val order = candidates.sortedWith(compareBy({ centerOf(records[it]) }, { it }))
+        private val centers = LongArray(order.size) { centerOf(records[order[it]]) }
+
+        fun nearest(center: Long): Int {
+            val upper = lowerBound(center)
+            var best = Long.MAX_VALUE
+            if (upper < centers.size) best = centers[upper] - center
+            if (upper > 0) best = min(best, center - centers[upper - 1])
+            var result = Int.MAX_VALUE
+            for (value in longArrayOf(center - best, center + best)) {
+                var i = lowerBound(value)
+                while (i < centers.size && centers[i] == value) {
+                    result = min(result, order[i])
+                    i++
+                }
+            }
+            return result
+        }
+
+        private fun lowerBound(value: Long): Int {
+            var low = 0
+            var high = centers.size
+            while (low < high) {
+                val mid = (low + high) ushr 1
+                if (centers[mid] < value) low = mid + 1 else high = mid
+            }
+            return low
         }
     }
 
@@ -199,17 +265,20 @@ internal class SpeakerReclusterer(
         target.members += source.members
     }
 
-    private fun cosine(a: FloatArray, b: FloatArray): Float {
+    private fun cosine(a: FloatArray, b: FloatArray): Float = cosine(a, normOf(a), b, normOf(b))
+
+    private fun cosine(a: FloatArray, normA: Double, b: FloatArray, normB: Double): Float {
         var dot = 0.0
-        var normA = 0.0
-        var normB = 0.0
-        for (i in a.indices) {
-            dot += a[i].toDouble() * b[i]
-            normA += a[i].toDouble() * a[i]
-            normB += b[i].toDouble() * b[i]
-        }
+        for (i in a.indices) dot += a[i].toDouble() * b[i]
         val denominator = sqrt(normA) * sqrt(normB)
         return if (denominator == 0.0) 0f else (dot / denominator).toFloat()
+    }
+
+    /** Сумма квадратов в double — как в прежнем косинусе, чтобы результат совпадал бит в бит. */
+    private fun normOf(v: FloatArray): Double {
+        var sum = 0.0
+        for (value in v) sum += value.toDouble() * value
+        return sum
     }
 
     private fun Segment.durationMs(): Long = (endMs - startMs).coerceAtLeast(0L)
@@ -217,5 +286,7 @@ internal class SpeakerReclusterer(
     internal companion object {
         const val DEFAULT_MERGE_THRESHOLD = 0.65f
         private const val MAX_WEIGHT_SECONDS = 8.0
+
+        private fun centerOf(record: SegmentRecord): Long = record.segment.startMs + record.segment.endMs
     }
 }

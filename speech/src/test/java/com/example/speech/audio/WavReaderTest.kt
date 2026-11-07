@@ -67,6 +67,53 @@ class WavReaderTest {
         }
     }
 
+    @Test
+    fun `stream gives the same samples as a whole read, also across odd buffer borders`() {
+        val values = ShortArray(5_001) { ((it * 7_919) % 65_536 - 32_768).toShort() }
+        val file = writeWav(values)
+        val whole = WavReader.readMono16k(file)
+
+        for (bufferBytes in listOf(1, 3, 7, 4_096)) {
+            WavReader.open(file, readBufferBytes = bufferBytes).use { stream ->
+                assertEquals(values.size.toLong(), stream.totalSamples)
+                val out = FloatArray(values.size)
+                var filled = 0
+                val chunk = FloatArray(333)
+                while (true) {
+                    val read = stream.read(chunk)
+                    if (read == 0) break
+                    chunk.copyInto(out, filled, 0, read)
+                    filled += read
+                }
+                assertEquals("buffer $bufferBytes", values.size, filled)
+                assertTrue("buffer $bufferBytes", out.contentEquals(whole))
+            }
+        }
+    }
+
+    @Test
+    fun `stream ends at the real end of a truncated file`() {
+        val file = writeWav(shortArrayOf(100, 200, 300), declaredDataSize = 1_000_000)
+
+        WavReader.open(file).use { stream ->
+            assertEquals(3L, stream.totalSamples)
+            val out = FloatArray(10)
+            assertEquals(3, stream.read(out))
+            assertEquals(0, stream.read(out))
+        }
+    }
+
+    @Test
+    fun `open rejects audio longer than the limit before reading data`() {
+        val file = writeWav(ShortArray(32_000))
+
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            WavReader.open(file, maxDurationMs = 1_000)
+        }
+        assertTrue(error.message, "лимита" in error.message.orEmpty())
+        WavReader.open(file, maxDurationMs = 2_000).use { assertEquals(2_000L, it.durationMs) }
+    }
+
     private fun writeWav(
         values: ShortArray,
         declaredDataSize: Int = values.size * 2,
