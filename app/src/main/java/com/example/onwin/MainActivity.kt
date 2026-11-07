@@ -25,6 +25,11 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    companion object {
+        /** id сессии, которую открыть (из уведомления). */
+        const val EXTRA_SESSION_ID = "com.example.onwin.extra.OPEN_SESSION_ID"
+    }
 }
 
 @Composable
