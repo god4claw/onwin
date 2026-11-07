@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Debug
 import android.os.Process
 import com.example.speech.api.Segment
+import com.example.speech.api.VadConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -19,7 +20,8 @@ import java.nio.ByteOrder
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
-internal const val BENCHMARK_SCHEMA_VERSION = 1
+// 2: pace, vad, задержки реплик, maxFeedLagMs и журнал событий streaming.
+internal const val BENCHMARK_SCHEMA_VERSION = 2
 internal const val BENCHMARK_SAMPLE_RATE = 16_000
 
 internal data class WavInfo(
@@ -108,6 +110,9 @@ internal data class BenchmarkConfig(
     val clusterPruneMinMs: Int,
     val clusterPruneMinFraction: Float,
     val speakerChangeThreshold: Float,
+    /** 0 — подача без пауз, 1 — реальное время, 2 — вдвое быстрее и т. д. */
+    val pace: Float,
+    val vad: VadConfig,
 )
 
 internal data class BatchRun(
@@ -147,6 +152,23 @@ internal data class BatchResult(
     val medianSegments: Int get() = median(runs.map { it.segments.size.toDouble() }).roundToInt()
 }
 
+/**
+ * Событие streaming-прогона. Текст не пишется: он уже есть в `segmentList`.
+ *
+ * @param atMs когда событие пришло, мс от старта прогона.
+ * @param latencyMs `atMs` минус момент, когда в транскрайбер был подан кусок
+ *   аудио с концом реплики (для `speech` — с её началом). При `pace = 1` это
+ *   задержка, которую увидит пользователь.
+ */
+internal data class StreamingEventRecord(
+    val type: String,
+    val atMs: Long,
+    val startMs: Long,
+    val endMs: Long?,
+    val speaker: Int?,
+    val latencyMs: Long,
+)
+
 internal data class StreamingRun(
     val index: Int,
     val audioMs: Long,
@@ -155,13 +177,22 @@ internal data class StreamingRun(
     val drainMs: Long,
     val firstSpeechMs: Long,
     val firstUtteranceMs: Long,
+    /** Максимальное отставание подачи от реального времени; > 0 только при `pace > 0`. */
+    val maxFeedLagMs: Long,
     val pssMb: Int,
     val nativeHeapMb: Int,
     val segments: List<Segment>,
+    val events: List<StreamingEventRecord>,
 ) {
     val rtf: Double get() = totalMs.toDouble() / audioMs.coerceAtLeast(1)
     val speedX: Double get() = audioMs.toDouble() / totalMs.coerceAtLeast(1)
     val speakerCount: Int get() = segments.map { it.speaker }.distinct().size
+
+    private val utteranceLatencies: List<Double>
+        get() = events.filter { it.type == "utterance" }.map { it.latencyMs.toDouble() }
+    val latencyP50Ms: Long get() = percentile(utteranceLatencies, 0.5).roundToLong()
+    val latencyP90Ms: Long get() = percentile(utteranceLatencies, 0.9).roundToLong()
+    val latencyMaxMs: Long get() = (utteranceLatencies.maxOrNull() ?: 0.0).roundToLong()
 }
 
 internal data class StreamingResult(
@@ -173,6 +204,10 @@ internal data class StreamingResult(
     val medianDrainMs: Long get() = median(runs.map { it.drainMs.toDouble() }).roundToLong()
     val medianFirstUtteranceMs: Long
         get() = median(runs.map { it.firstUtteranceMs.toDouble() }).roundToLong()
+    val medianLatencyP50Ms: Long get() = median(runs.map { it.latencyP50Ms.toDouble() }).roundToLong()
+    val medianLatencyP90Ms: Long get() = median(runs.map { it.latencyP90Ms.toDouble() }).roundToLong()
+    val medianLatencyMaxMs: Long get() = median(runs.map { it.latencyMaxMs.toDouble() }).roundToLong()
+    val medianMaxFeedLagMs: Long get() = median(runs.map { it.maxFeedLagMs.toDouble() }).roundToLong()
     val medianRtf: Double get() = median(runs.map { it.rtf })
     val medianSpeedX: Double get() = median(runs.map { it.speedX })
     val medianPssMb: Int get() = median(runs.map { it.pssMb.toDouble() }).roundToInt()
@@ -234,6 +269,14 @@ internal fun isoNow(): String {
     return format.format(Date())
 }
 
+/** Перцентиль по ближайшему рангу; 0 для пустого списка. */
+private fun percentile(values: List<Double>, fraction: Double): Double {
+    if (values.isEmpty()) return 0.0
+    val sorted = values.sorted()
+    val rank = kotlin.math.ceil(fraction * sorted.size).toInt().coerceIn(1, sorted.size)
+    return sorted[rank - 1]
+}
+
 private fun median(values: List<Double>): Double {
     if (values.isEmpty()) return 0.0
     val sorted = values.sorted()
@@ -276,6 +319,16 @@ private fun BenchmarkConfig.toJson(): JSONObject = JSONObject().apply {
     put("clusterPruneMinMs", clusterPruneMinMs)
     put("clusterPruneMinFraction", clusterPruneMinFraction)
     put("speakerChangeThreshold", speakerChangeThreshold)
+    put("pace", pace)
+    put(
+        "vad",
+        JSONObject().apply {
+            put("threshold", vad.threshold)
+            put("minSilenceMs", vad.minSilenceMs)
+            put("minSpeechMs", vad.minSpeechMs)
+            put("maxSpeechMs", vad.maxSpeechMs)
+        },
+    )
 }
 
 private fun BenchmarkDevice.toJson(): JSONObject = JSONObject().apply {
@@ -335,6 +388,10 @@ private fun StreamingResult.toJson(): JSONObject = JSONObject().apply {
             put("medianFeedMs", medianFeedMs)
             put("medianDrainMs", medianDrainMs)
             put("medianFirstUtteranceMs", medianFirstUtteranceMs)
+            put("medianLatencyP50Ms", medianLatencyP50Ms)
+            put("medianLatencyP90Ms", medianLatencyP90Ms)
+            put("medianLatencyMaxMs", medianLatencyMaxMs)
+            put("medianMaxFeedLagMs", medianMaxFeedLagMs)
             put("medianRtf", medianRtf)
             put("medianSpeedX", medianSpeedX)
             put("medianPssMb", medianPssMb)
@@ -352,6 +409,10 @@ private fun StreamingRun.toJson(): JSONObject = JSONObject().apply {
     put("drainMs", drainMs)
     put("firstSpeechMs", firstSpeechMs)
     put("firstUtteranceMs", firstUtteranceMs)
+    put("latencyP50Ms", latencyP50Ms)
+    put("latencyP90Ms", latencyP90Ms)
+    put("latencyMaxMs", latencyMaxMs)
+    put("maxFeedLagMs", maxFeedLagMs)
     put("rtf", rtf)
     put("speedX", speedX)
     put("pssMb", pssMb)
@@ -359,6 +420,23 @@ private fun StreamingRun.toJson(): JSONObject = JSONObject().apply {
     put("speakerCount", speakerCount)
     put("segments", segments.size)
     put("segmentList", segments.toJson())
+    put(
+        "events",
+        JSONArray().apply {
+            events.forEach { event ->
+                put(
+                    JSONObject().apply {
+                        put("type", event.type)
+                        put("atMs", event.atMs)
+                        put("startMs", event.startMs)
+                        event.endMs?.let { put("endMs", it) }
+                        event.speaker?.let { put("speaker", it) }
+                        put("latencyMs", event.latencyMs)
+                    },
+                )
+            }
+        },
+    )
 }
 
 private fun List<Segment>.toJson(): JSONArray = JSONArray().apply {
@@ -392,7 +470,9 @@ internal fun BenchmarkReport.formatTable(): String {
             "autoThreshold=${config.autoClusterThreshold} " +
             "onlineThreshold=${config.onlineClusterThreshold} " +
             "prune=${config.clusterPruneMinMs}ms/${config.clusterPruneMinFraction} " +
-            "change=${config.speakerChangeThreshold}",
+            "change=${config.speakerChangeThreshold} pace=${config.pace} " +
+            "vad=${config.vad.threshold}/${config.vad.minSilenceMs}ms/" +
+            "${config.vad.minSpeechMs}ms/${config.vad.maxSpeechMs}ms",
     )
 
     batch?.let { result ->
@@ -441,18 +521,23 @@ internal fun BenchmarkReport.formatTable(): String {
         out.appendLine()
         out.appendLine("streaming (model load ${formatSeconds(result.modelLoadMs)})")
         out.appendLine(
-            "  run   total     feed    drain    first      rtf   speed    pss  spk  seg",
+            "  run   total     feed    drain    first    lat50    lat90   latMax      lag" +
+                "      rtf   speed    pss  spk  seg",
         )
         result.runs.forEach { run ->
             out.appendLine(
                 String.format(
                     Locale.US,
-                    "  %3d  %7s  %7s  %7s  %7s  %7.3f  %6s  %5d  %3d  %3d",
+                    "  %3d  %7s  %7s  %7s  %7s  %7s  %7s  %7s  %7s  %7.3f  %6s  %5d  %3d  %3d",
                     run.index,
                     formatSeconds(run.totalMs),
                     formatSeconds(run.feedMs),
                     formatSeconds(run.drainMs),
                     formatSeconds(run.firstUtteranceMs),
+                    formatSeconds(run.latencyP50Ms),
+                    formatSeconds(run.latencyP90Ms),
+                    formatSeconds(run.latencyMaxMs),
+                    formatSeconds(run.maxFeedLagMs),
                     run.rtf,
                     formatSpeed(run.speedX),
                     run.pssMb,
@@ -464,12 +549,16 @@ internal fun BenchmarkReport.formatTable(): String {
         out.appendLine(
             String.format(
                 Locale.US,
-                "  %3s  %7s  %7s  %7s  %7s  %7.3f  %6s  %5d  %3d  %3d",
+                "  %3s  %7s  %7s  %7s  %7s  %7s  %7s  %7s  %7s  %7.3f  %6s  %5d  %3d  %3d",
                 "med",
                 formatSeconds(result.medianTotalMs),
                 formatSeconds(result.medianFeedMs),
                 formatSeconds(result.medianDrainMs),
                 formatSeconds(result.medianFirstUtteranceMs),
+                formatSeconds(result.medianLatencyP50Ms),
+                formatSeconds(result.medianLatencyP90Ms),
+                formatSeconds(result.medianLatencyMaxMs),
+                formatSeconds(result.medianMaxFeedLagMs),
                 result.medianRtf,
                 formatSpeed(result.medianSpeedX),
                 result.medianPssMb,

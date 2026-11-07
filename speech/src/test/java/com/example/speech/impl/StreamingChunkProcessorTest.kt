@@ -81,14 +81,44 @@ class StreamingChunkProcessorTest {
         assertTrue(pieces[0].samples.contentEquals(chunk.samples))
     }
 
+    @Test
+    fun `trace reports timings and speaker but never the recognized text`() {
+        val lines = ArrayList<String>()
+        val processor = processor(
+            transcribe = { "секретная фраза" },
+            trace = { lines += it },
+        ) { floatArrayOf(1f, 0f) }
+
+        processor.split(SpeechChunk(0L, FloatArray(SAMPLES_PER_SECOND)))
+        processor.segment(SpeechChunk(SAMPLES_PER_SECOND.toLong(), FloatArray(SAMPLES_PER_SECOND)))
+
+        assertEquals(2, lines.size)
+        assertTrue(lines[0], lines[0].startsWith("split start=0ms dur=1000ms pieces=1"))
+        assertTrue(lines[1], lines[1].startsWith("segment start=1000ms dur=1000ms"))
+        assertTrue(lines[1], "spk=0" in lines[1] && "new=true" in lines[1] && "chars=15" in lines[1])
+        assertTrue(lines.none { "секретная" in it || "фраза" in it })
+    }
+
+    @Test
+    fun `trace explains fallback speaker for a short piece`() {
+        val lines = ArrayList<String>()
+        val processor = processor(transcribe = { "да" }, trace = { lines += it }) { floatArrayOf(1f, 0f) }
+
+        processor.segment(SpeechChunk(0L, FloatArray(SAMPLES_PER_SECOND / 4)))
+
+        assertTrue(lines.single(), "via=short" in lines.single() && "sim=-" in lines.single())
+    }
+
     private fun processor(
         transcribe: (FloatArray) -> String,
+        trace: ((String) -> Unit)? = null,
         embedding: (FloatArray) -> FloatArray?,
     ): StreamingChunkProcessor = StreamingChunkProcessor(
         transcribe = transcribe,
         embeddingOf = embedding,
         clusterer = OnlineSpeakerClusterer(threshold = 0.45f),
         splitter = SpeakerChangeSplitter(SpeakerChangeConfig(minSegmentMs = 100_000)),
+        trace = trace,
     )
 
     private companion object {

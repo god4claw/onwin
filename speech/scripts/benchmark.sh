@@ -17,6 +17,12 @@ Options:
   --prune-min-ms <n>      Minimum cluster duration after pruning (default: 3000)
   --prune-min-fraction <x> Minimum cluster speech fraction, 0..1 (default: 0.05)
   --speaker-change-threshold <x> Speaker-change cosine threshold, 0..1 (default: 0.65)
+  --pace <x>          Streaming feed speed: 0 = as fast as possible (default),
+                      1 = real time like a live microphone (measures latency)
+  --vad-threshold <x>        Silero VAD threshold, 0..1 (default: VadConfig)
+  --vad-min-silence-ms <n>   Silence that closes an utterance (default: VadConfig, 450)
+  --vad-min-speech-ms <n>    Minimum speech length (default: VadConfig, 250)
+  --vad-max-speech-ms <n>    Forced utterance cut (default: VadConfig, 25000)
   --serial <serial>   adb device serial (default: first device)
   --out <dir>         Local output directory (default: bench-results)
   --no-build          Skip Gradle build/install
@@ -35,6 +41,12 @@ ONLINE_THRESHOLD="0.45"
 PRUNE_MIN_MS=3000
 PRUNE_MIN_FRACTION="0.05"
 SPEAKER_CHANGE_THRESHOLD="0.65"
+PACE="0"
+# VAD: пустое значение — не передавать, тест возьмёт значения VadConfig по умолчанию.
+VAD_THRESHOLD=""
+VAD_MIN_SILENCE_MS=""
+VAD_MIN_SPEECH_MS=""
+VAD_MAX_SPEECH_MS=""
 SERIAL=""
 OUT_DIR="bench-results"
 NO_BUILD=0
@@ -52,6 +64,11 @@ while [[ $# -gt 0 ]]; do
         --prune-min-ms) PRUNE_MIN_MS="${2:?--prune-min-ms requires a value}"; shift 2 ;;
         --prune-min-fraction) PRUNE_MIN_FRACTION="${2:?--prune-min-fraction requires a value}"; shift 2 ;;
         --speaker-change-threshold) SPEAKER_CHANGE_THRESHOLD="${2:?--speaker-change-threshold requires a value}"; shift 2 ;;
+        --pace) PACE="${2:?--pace requires a value}"; shift 2 ;;
+        --vad-threshold) VAD_THRESHOLD="${2:?--vad-threshold requires a value}"; shift 2 ;;
+        --vad-min-silence-ms) VAD_MIN_SILENCE_MS="${2:?--vad-min-silence-ms requires a value}"; shift 2 ;;
+        --vad-min-speech-ms) VAD_MIN_SPEECH_MS="${2:?--vad-min-speech-ms requires a value}"; shift 2 ;;
+        --vad-max-speech-ms) VAD_MAX_SPEECH_MS="${2:?--vad-max-speech-ms requires a value}"; shift 2 ;;
         --serial) SERIAL="${2:?--serial requires a value}"; shift 2 ;;
         --out) OUT_DIR="${2:?--out requires a value}"; shift 2 ;;
         --no-build) NO_BUILD=1; shift ;;
@@ -105,6 +122,30 @@ if ! awk -v v="$SPEAKER_CHANGE_THRESHOLD" 'BEGIN { exit !(v + 0 == v && v >= 0 &
     exit 1
 fi
 
+if ! awk -v v="$PACE" 'BEGIN { exit !(v + 0 == v && v >= 0) }'; then
+    echo "Invalid --pace: $PACE (expected >= 0)" >&2
+    exit 1
+fi
+if [[ -n "$VAD_THRESHOLD" ]] &&
+    ! awk -v v="$VAD_THRESHOLD" 'BEGIN { exit !(v + 0 == v && v >= 0 && v <= 1) }'; then
+    echo "Invalid --vad-threshold: $VAD_THRESHOLD (expected 0..1)" >&2
+    exit 1
+fi
+for pair in "vad-min-silence-ms:$VAD_MIN_SILENCE_MS" "vad-min-speech-ms:$VAD_MIN_SPEECH_MS" \
+    "vad-max-speech-ms:$VAD_MAX_SPEECH_MS"; do
+    value="${pair#*:}"
+    if [[ -n "$value" && ! "$value" =~ ^[0-9]+$ ]]; then
+        echo "Invalid --${pair%%:*}: $value (expected integer ms)" >&2
+        exit 1
+    fi
+done
+
+OPTIONAL_ARGS=()
+[[ -n "$VAD_THRESHOLD" ]] && OPTIONAL_ARGS+=(-e vad_threshold "$VAD_THRESHOLD")
+[[ -n "$VAD_MIN_SILENCE_MS" ]] && OPTIONAL_ARGS+=(-e vad_min_silence_ms "$VAD_MIN_SILENCE_MS")
+[[ -n "$VAD_MIN_SPEECH_MS" ]] && OPTIONAL_ARGS+=(-e vad_min_speech_ms "$VAD_MIN_SPEECH_MS")
+[[ -n "$VAD_MAX_SPEECH_MS" ]] && OPTIONAL_ARGS+=(-e vad_max_speech_ms "$VAD_MAX_SPEECH_MS")
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -157,7 +198,8 @@ if [[ "$NO_BUILD" -eq 0 ]]; then
     echo "Building :speech androidTest APK..."
     (
         cd "$ROOT_DIR"
-        ./gradlew --no-daemon :speech:verifyBundledModels :speech:installDebugAndroidTest
+        # bash, а не ./gradlew: в git у gradlew нет +x, и на Linux/macOS прямой запуск падает.
+        bash ./gradlew --no-daemon :speech:verifyBundledModels :speech:installDebugAndroidTest
     )
 fi
 
@@ -200,7 +242,7 @@ fi
 LABEL="$(basename "$WAV")"
 LABEL="${LABEL%.*}"
 
-echo "Running benchmark (mode=$MODE, runs=$RUNS, threads=$THREADS)..."
+echo "Running benchmark (mode=$MODE, runs=$RUNS, threads=$THREADS, pace=$PACE)..."
 set +e
 INSTRUMENT_OUTPUT="$(
     "$ADB" "${ADB_ARGS[@]}" shell am instrument -w -r \
@@ -217,6 +259,8 @@ INSTRUMENT_OUTPUT="$(
         -e prune_min_ms "$PRUNE_MIN_MS" \
         -e prune_min_fraction "$PRUNE_MIN_FRACTION" \
         -e speaker_change_threshold "$SPEAKER_CHANGE_THRESHOLD" \
+        -e pace "$PACE" \
+        ${OPTIONAL_ARGS[@]+"${OPTIONAL_ARGS[@]}"} \
         -e out "$REMOTE_JSON" \
         com.example.speech.test/androidx.test.runner.AndroidJUnitRunner 2>&1
 )"
