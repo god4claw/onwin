@@ -1,3 +1,136 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:locale="ru">
     <string name="app_name">OnWin</string>
+
+    <!-- Действия -->
+    <string name="action_cancel">Отменить</string>
+    <string name="action_retry">Повторить</string>
+    <string name="action_delete">Удалить</string>
+    <string name="action_back">Назад</string>
+    <string name="action_reset_name">Сбросить имя</string>
+
+    <!-- Приветствие -->
+    <string name="welcome_title">Расшифруй\nсвоё аудио</string>
+    <string name="welcome_subtitle">Лучшая расшифровка\nБез интернета</string>
+    <string name="welcome_description">Получите качественный текст из аудио по спикерам и таймкодам</string>
+    <string name="welcome_start">Начать</string>
+    <string name="welcome_save_failed">Не удалось сохранить выбор. Нажмите «Начать» ещё раз.</string>
+
+    <!-- Список записей -->
+    <string name="sessions_title">Записи</string>
+    <string name="sessions_import">Импортировать</string>
+    <string name="sessions_empty">Записей пока нет. Нажмите «Импортировать» и выберите аудиофайл.</string>
+    <string name="recordings_empty">Записей пока нет</string>
+    <string name="recordings_yours">Ваши записи</string>
+    <string name="recordings_all">Все записи</string>
+    <string name="recordings_collapse">Свернуть записи</string>
+    <string name="recordings_capture_title">Запишите аудио или\nимпортируйте его</string>
+    <string name="recordings_import_device">Импортировать с устройства</string>
+    <string name="recordings_importing">Подготовка файла…</string>
+    <string name="recordings_import_failed">Не удалось импортировать аудиофайл.</string>
+    <string name="recordings_import_picker_unavailable">Не удалось открыть выбор файла.</string>
+    <string name="recordings_record_audio">Записать аудио</string>
+    <string name="recordings_duration">%1$d мин. %2$d сек.</string>
+    <string name="recordings_active">Запись…</string>
+    <string name="recordings_rename">Переименовать запись «%1$s»</string>
+    <string name="recordings_delete">Удалить запись «%1$s»</string>
+    <string name="dialog_cancel">Отмена</string>
+    <string name="recording_rename_title">Переименовать запись</string>
+    <string name="recording_rename_label">Название записи</string>
+    <string name="action_save">Сохранить</string>
+    <string name="recording_name">Название</string>
+    <string name="recording_rename_failed">Не удалось сохранить название.</string>
+    <string name="session_meta">%1$s · %2$s</string>
+    <string name="duration_unknown">—</string>
+    <string name="delete_title">Удалить запись?</string>
+    <string name="delete_text">Запись %1$s будет удалена.</string>
+
+    <!-- Статусы -->
+    <string name="status_queued">В очереди</string>
+    <string name="status_converting">Конвертация</string>
+    <string name="status_transcribing">Распознавание</string>
+    <string name="status_done">Готово</string>
+    <string name="status_failed">Ошибка</string>
+    <string name="status_cancelled">Отменено</string>
+
+    <!-- Этапы обработки -->
+    <string name="stage_converting">Конвертация</string>
+    <string name="stage_loading_models">Загрузка моделей…</string>
+    <string name="stage_diarization">Определение говорящих</string>
+    <string name="stage_recognition">Распознавание речи</string>
+    <string name="stage_step">Шаг %1$d из %2$d · %3$s</string>
+    <string name="stage_step_percent">Шаг %1$d из %2$d · %3$s · %4$d%%</string>
+    <string name="stage_waiting">Подготовка…</string>
+
+    <!-- Запись -->
+    <string name="detail_not_found">Запись удалена.</string>
+    <string name="speaker_default">Спикер %1$d</string>
+    <string name="speaker_rename_title">Переименовать спикера</string>
+    <string name="speaker_rename_label">Имя спикера</string>
+    <string name="speaker_rename_failed">Не удалось изменить имя спикера.</string>
+
+    <!-- Ошибки -->
+    <string name="error_interrupted">Работа прервалась. Повторите обработку сохранённого аудио или начните новую запись.</string>
+    <string name="error_source_unavailable">Нет доступа к файлу, выберите его заново</string>
+    <string name="error_no_audio_track">В файле нет звуковой дорожки.</string>
+    <string name="error_unsupported_format">Формат файла не поддерживается.</string>
+    <string name="error_decode_failed">Не удалось прочитать аудио: файл повреждён.</string>
+    <string name="error_too_long">Запись слишком длинная.</string>
+    <string name="error_storage_full">Не удалось сохранить аудио: проверьте свободное место.</string>
+    <string name="error_foreground_not_allowed">Android не разрешил запустить обработку. Откройте приложение и нажмите «Повторить».</string>
+    <string name="error_transcription_failed">Не удалось распознать речь.</string>
+    <string name="error_unknown">Неизвестная ошибка.</string>
+
+    <!-- Уведомление -->
+    <string name="notification_channel_processing">Обработка записей</string>
+    <string name="notification_title_default">Обработка записи</string>
+    <string name="notification_queued">Ещё в очереди: %1$d</string>
+    <string name="sessions_record">Записать</string>
+    <string name="action_stop">Остановить</string>
+    <string name="status_recording">Запись</string>
+    <string name="recording_elapsed">Запись · %1$s</string>
+    <string name="recording_starting">Подготовка микрофона…</string>
+    <string name="recording_stopping">Сохранение записи…</string>
+    <string name="recording_start_failed">Не удалось начать запись.</string>
+    <string name="active_recording_status">Запись…</string>
+    <string name="recording_processing">Обработка…</string>
+    <string name="recording_demo">Демо</string>
+    <string name="recording_save_json">Сохранить JSON</string>
+    <string name="recording_json_saved">Расшифровка сохранена.</string>
+    <string name="recording_json_save_failed">Не удалось сохранить JSON. Попробуйте ещё раз.</string>
+    <string name="recording_json_picker_unavailable">Не удалось открыть выбор места для сохранения.</string>
+    <string name="recording_background_note">Запись продолжится, если свернуть\nприложение или выключить экран</string>
+    <string name="recording_stop_heading">Запись идёт\nОстановите её кнопкой</string>
+    <string name="recording_stop">Остановить запись</string>
+    <string name="recording_cancel">Отменить запись</string>
+    <string name="recording_cancel_confirm_title">Отменить запись?</string>
+    <string name="recording_cancel_confirm_message">Аудио будет удалено. Карточка останется в списке со статусом «Отменено».</string>
+    <string name="recording_continue">Продолжить запись</string>
+    <string name="recording_cancelling">Отмена записи…</string>
+    <string name="processing_heading">Идёт обработка\nДождитесь результата</string>
+    <string name="processing_background_note">Обработка продолжится, если свернуть\nприложение или выключить экран</string>
+    <string name="processing_cancel">Отменить обработку</string>
+    <string name="processing_cancel_confirm_title">Отменить обработку?</string>
+    <string name="processing_cancel_confirm_message">Расшифровка остановится, а аудио сохранится.</string>
+    <string name="processing_continue">Продолжить обработку</string>
+    <string name="processing_cancelling">Отмена обработки…</string>
+    <string name="playback_heading">Запустите аудио</string>
+    <string name="playback_play">Воспроизвести аудио</string>
+    <string name="playback_pause">Приостановить аудио</string>
+    <string name="playback_timeline">Шкала воспроизведения</string>
+    <string name="playback_unavailable">Аудио недоступно.</string>
+    <string name="playback_cannot_start">Не удалось запустить звук. Попробуйте ещё раз.</string>
+    <plurals name="recording_speaker_count">
+        <item quantity="one">%d спикер</item>
+        <item quantity="few">%d спикера</item>
+        <item quantity="many">%d спикеров</item>
+        <item quantity="other">%d спикеров</item>
+    </plurals>
+    <string name="error_microphone_unavailable">Микрофон недоступен или запись прервана системой. Начните новую запись.</string>
+    <string name="error_microphone_permission">Нет разрешения на микрофон. Разрешите доступ и начните новую запись.</string>
+    <string name="error_empty_recording">Запись пуста. Начните новую запись.</string>
+    <string name="microphone_permission_title">Доступ к микрофону</string>
+    <string name="microphone_permission_rationale">Микрофон нужен для записи разговора. Аудио сохраняется и обрабатывается на устройстве.</string>
+    <string name="microphone_permission_settings">Разрешите доступ к микрофону в настройках приложения, затем нажмите «Записать».</string>
+    <string name="action_continue">Продолжить</string>
+    <string name="action_settings">Настройки</string>
 </resources>
