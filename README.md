@@ -54,4 +54,6 @@ Headless CLI: `speech/scripts/benchmark.ps1` и `speech/scripts/benchmark.sh`. �
 
 A/B-замеры рефакторинга v2 (112 прогонов, BEFORE/AFTER/AFTER/BEFORE): [`docs/bench-refactor-v2.md`](docs/bench-refactor-v2.md).
 
+Псевдостриминг в реальном темпе на золотом наборе (задержки, WER, атрибуция спикеров, падение batch на монологе): [`docs/bench-golden-baseline.md`](docs/bench-golden-baseline.md).
+
 Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.
