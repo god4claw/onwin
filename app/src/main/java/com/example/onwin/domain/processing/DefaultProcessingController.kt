@@ -4,6 +4,11 @@ import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
+import com.example.onwin.domain.repository.SessionRepository
+import com.example.speech.api.SpeechConfig
+import com.example.speech.api.Stage
+import com.example.speech.api.Transcriber
+import com.example.speech.api.TranscriptionEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
