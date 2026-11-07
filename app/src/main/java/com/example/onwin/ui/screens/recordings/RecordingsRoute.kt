@@ -73,8 +73,12 @@ internal fun RecordingsRoute(
         }
     }
 
-    val deleting = state.sessions.firstOrNull { it.session.id == deletingId }?.session
-    val renaming = state.sessions.firstOrNull { it.session.id == renamingId }?.session
+    val deleting = deletingId?.let { id ->
+        state.sessions.firstOrNull { it.session.id == id }?.session
+    }
+    val renaming = renamingId?.let { id ->
+        state.sessions.firstOrNull { it.session.id == id }?.session
+    }
     val dialogOpen = deleting != null || renaming != null
     RecordingsScreen(
         modifier = modifier,

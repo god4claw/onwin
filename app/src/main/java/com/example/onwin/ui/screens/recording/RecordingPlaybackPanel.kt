@@ -194,7 +194,10 @@ private fun PlaybackTimeline(
     )
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         val timeStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp, lineHeight = 15.6.sp)
-        Text(formatClock(positionMs), color = PlaybackTimeColor, style = timeStyle)
-        Text(formatClock(durationMs), color = PlaybackTimeColor, style = timeStyle)
+        val positionSeconds = positionMs.coerceAtLeast(0) / 1_000
+        val positionText = remember(positionSeconds) { formatClock(positionSeconds * 1_000) }
+        val durationText = remember(durationMs) { formatClock(durationMs) }
+        Text(positionText, color = PlaybackTimeColor, style = timeStyle)
+        Text(durationText, color = PlaybackTimeColor, style = timeStyle)
     }
 }

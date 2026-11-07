@@ -249,7 +249,9 @@ private fun RecordingSummary(detail: SessionDetail, elapsedMs: Long, compact: Bo
                 style = if (completed) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
             )
             if (completed) {
-                val speakers = detail.segments.map { it.speaker }.distinct().size
+                val speakers = remember(detail.segments) {
+                    detail.segments.mapTo(HashSet()) { it.speaker }.size
+                }
                 Text(
                     text = pluralStringResource(R.plurals.recording_speaker_count, speakers, speakers),
                     color = RecordingTranscriptText,
@@ -270,6 +272,9 @@ private fun RecordingTranscript(
     onRenameSpeaker: (Int) -> Unit,
 ) {
     val segments = detail.segments
+    val speakerNames = remember(detail.speakerNames) {
+        detail.speakerNames.associate { it.speaker to it.name }
+    }
     val listState = rememberLazyListState()
     val isDragged by listState.interactionSource.collectIsDraggedAsState()
     // Автопрокрутка к последней реплике, пока пользователь сам не отлистал вверх.
@@ -322,7 +327,7 @@ private fun RecordingTranscript(
             verticalArrangement = Arrangement.spacedBy(13.dp, Alignment.Bottom),
         ) {
             items(segments, key = { it.index }) { segment ->
-                val speakerName = detail.speakerNames.firstOrNull { it.speaker == segment.speaker }?.name
+                val speakerName = speakerNames[segment.speaker]
                     ?: stringResource(R.string.speaker_default, segment.speaker + 1)
                 Column {
                     Row(
