@@ -8,6 +8,7 @@ import androidx.room.Upsert
 import com.example.onwin.data.database.entity.SegmentEntity
 import com.example.onwin.data.database.entity.SessionEntity
 import com.example.onwin.data.database.entity.SessionNotesEntity
+import com.example.onwin.data.database.entity.SessionProtocolEntity
 import com.example.onwin.data.database.entity.SpeakerNameEntity
 import com.example.onwin.data.database.entity.SpeakerSuggestionEntity
 import com.example.onwin.domain.model.ErrorCode
@@ -180,4 +181,12 @@ abstract class SessionDao {
 
     @Query("DELETE FROM speaker_suggestions WHERE sessionId = :sessionId")
     abstract suspend fun clearSuggestions(sessionId: String)
+
+    /** Сохраняет протокол, заменяя прежний. */
+    @Upsert
+    abstract suspend fun upsertProtocol(protocol: SessionProtocolEntity)
+
+    /** Убирает протокол: при повторе, отмене или повторной генерации. */
+    @Query("DELETE FROM session_protocols WHERE sessionId = :sessionId")
+    abstract suspend fun clearProtocol(sessionId: String)
 }

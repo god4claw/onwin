@@ -17,6 +17,7 @@ import com.example.speech.api.TextCorrector
 import com.example.speech.api.Transcriber
 import com.example.speech.api.TranscriptAnalyzer
 import com.example.speech.api.DialogueNotes
+import com.example.speech.api.ProtocolNotes
 import com.example.speech.api.TranscriptionEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -38,6 +39,7 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
     private val speakerNames = MutableStateFlow<Map<String, Map<Int, String>>>(emptyMap())
     private val summaries = MutableStateFlow<Map<String, String>>(emptyMap())
     private val suggestions = MutableStateFlow<Map<String, Map<Int, String>>>(emptyMap())
+    private val protocols = MutableStateFlow<Map<String, ProtocolNotes>>(emptyMap())
     private val segments = mutableMapOf<String, MutableList<Segment>>()
     private val history = mutableMapOf<String, MutableList<SessionStatus>>()
 
@@ -65,7 +67,7 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
         sessions.map { all -> all.values.map { SessionListItem(it, segments(it.id).size, 0) } }
 
     override fun observeSession(id: String): Flow<SessionDetail?> =
-        combine(sessions, speakerNames, summaries, suggestions) { all, names, notes, suggested ->
+        combine(sessions, speakerNames, summaries, suggestions, protocols) { all, names, notes, suggested, protocols ->
             all[id]?.let { session ->
                 SessionDetail(
                     session,
@@ -73,6 +75,7 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
                     names[id].orEmpty().map { (speaker, name) -> SpeakerName(speaker, name) },
                     summary = notes[id],
                     suggestedNames = suggested[id].orEmpty().map { (speaker, name) -> SpeakerName(speaker, name) },
+                    protocol = protocols[id],
                 )
             }
         }
@@ -135,6 +138,16 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
     override suspend fun clearAnalysis(id: String) {
         summaries.value -= id
         suggestions.value -= id
+        protocols.value -= id
+    }
+
+    override suspend fun saveProtocol(id: String, protocol: ProtocolNotes) {
+        check(exists(id)) { "Missing session $id" }
+        protocols.value += id to protocol
+    }
+
+    override suspend fun clearProtocol(id: String) {
+        protocols.value -= id
     }
 
     /** Заметки LLM в памяти: для проверок без Flow. */
@@ -161,6 +174,7 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
         speakerNames.value -= id
         summaries.value -= id
         suggestions.value -= id
+        protocols.value -= id
     }
 
     override fun wavFile(fileName: String): File = File(recordingsDir, fileName)

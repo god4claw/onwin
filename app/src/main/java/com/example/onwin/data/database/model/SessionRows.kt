@@ -5,6 +5,7 @@ import androidx.room.Relation
 import com.example.onwin.data.database.entity.SegmentEntity
 import com.example.onwin.data.database.entity.SessionEntity
 import com.example.onwin.data.database.entity.SessionNotesEntity
+import com.example.onwin.data.database.entity.SessionProtocolEntity
 import com.example.onwin.data.database.entity.SpeakerNameEntity
 import com.example.onwin.data.database.entity.SpeakerSuggestionEntity
 
@@ -40,4 +41,6 @@ data class SessionDetailRow(
     val notes: SessionNotesEntity?,
     @Relation(parentColumn = "id", entityColumn = "sessionId")
     val suggestions: List<SpeakerSuggestionEntity>,
+    @Relation(parentColumn = "id", entityColumn = "sessionId")
+    val protocol: SessionProtocolEntity?,
 )

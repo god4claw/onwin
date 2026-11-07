@@ -11,6 +11,7 @@ import com.example.onwin.data.database.dao.SessionDao
 import com.example.onwin.data.database.entity.SegmentEntity
 import com.example.onwin.data.database.entity.SessionEntity
 import com.example.onwin.data.database.entity.SessionNotesEntity
+import com.example.onwin.data.database.entity.SessionProtocolEntity
 import com.example.onwin.data.database.entity.SpeakerNameEntity
 import com.example.onwin.data.database.entity.SpeakerSuggestionEntity
 
@@ -22,8 +23,9 @@ import com.example.onwin.data.database.entity.SpeakerSuggestionEntity
         SpeakerNameEntity::class,
         SessionNotesEntity::class,
         SpeakerSuggestionEntity::class,
+        SessionProtocolEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -70,10 +72,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `session_protocols` (
+                        `sessionId` TEXT NOT NULL,
+                        `payload` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`sessionId`),
+                        FOREIGN KEY(`sessionId`) REFERENCES `sessions`(`id`)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         /** Открывает БД в стандартной папке приложения. */
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, NAME)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
     }
 }

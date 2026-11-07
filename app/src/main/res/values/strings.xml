@@ -129,6 +129,17 @@
     <string name="llm_summary_title">Кратко</string>
     <string name="llm_names_title">Имена от модели</string>
     <string name="llm_suggested_name">Спикер %1$d — %2$s</string>
+    <string name="llm_protocol_title">Протокол</string>
+    <string name="llm_protocol_generate">Составить протокол</string>
+    <string name="llm_protocol_running">Модель составляет протокол…</string>
+    <string name="llm_protocol_cancel">Отменить</string>
+    <string name="llm_protocol_export">Сохранить .md</string>
+    <string name="llm_protocol_decisions">Решения</string>
+    <string name="llm_protocol_actions">Поручения</string>
+    <string name="llm_protocol_language_en">Английский · черновик: ASR может ошибаться</string>
+    <string name="llm_protocol_saved">Протокол сохранён.</string>
+    <string name="llm_protocol_save_failed">Не удалось сохранить протокол.</string>
+    <string name="llm_protocol_picker_unavailable">Не удалось открыть выбор места для сохранения.</string>
     <string name="recording_background_note">Запись продолжится, если свернуть\nприложение или выключить экран</string>
     <string name="recording_stop_heading">Запись идёт\nОстановите её кнопкой</string>
     <string name="recording_stop">Остановить запись</string>

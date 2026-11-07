@@ -8,9 +8,13 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.example.onwin.data.export.TranscriptExportFormat
 import com.example.onwin.data.export.TranscriptExporter
+import com.example.onwin.data.protocol.ProtocolExporter
+import com.example.onwin.data.protocol.ProtocolMarkdown
 import com.example.onwin.domain.model.SessionDetail
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.ProcessingController
+import com.example.onwin.domain.processing.ProtocolService
+import com.example.onwin.domain.processing.ProtocolUiState
 import com.example.onwin.domain.processing.RecordingState
 import com.example.onwin.domain.repository.SessionRepository
 import com.example.onwin.domain.repository.TranscriptOnboardingRepository
@@ -39,6 +43,8 @@ import kotlinx.coroutines.launch
  * @param repository источник сессии и сегментов.
  * @param controller очередь обработки.
  * @param transcriptExporter сохраняет итоговую расшифровку в выбранный документ.
+ * @param protocolService опциональный протокол по расшифровке (локальная LLM).
+ * @param protocolExporter сохраняет протокол в markdown-файл.
  * @param transcriptOnboarding хранит пройденные шаги подсказок для расшифровки.
  */
 @HiltViewModel
@@ -47,17 +53,24 @@ class RecordingViewModel @Inject constructor(
     private val repository: SessionRepository,
     private val controller: ProcessingController,
     private val transcriptExporter: TranscriptExporter,
+    private val protocolService: ProtocolService,
+    private val protocolExporter: ProtocolExporter,
     private val transcriptOnboarding: TranscriptOnboardingRepository,
 ) : ViewModel() {
     val sessionId: String = savedStateHandle.toRoute<ActiveRecordingDestination>().sessionId
 
     /** Состояние экрана. */
     val uiState: StateFlow<RecordingUiState> =
-        combine(repository.observeSession(sessionId), controller.state) { detail, processing ->
+        combine(
+            repository.observeSession(sessionId),
+            controller.state,
+            protocolService.state,
+        ) { detail, processing, protocol ->
             RecordingUiState(
                 loaded = true,
                 detail = detail,
                 recording = processing.recording?.takeIf { it.sessionId == sessionId },
+                protocol = protocol,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), RecordingUiState())
 
@@ -65,6 +78,11 @@ class RecordingViewModel @Inject constructor(
     internal val isExporting = exporting.asStateFlow()
     private val exportResult = Channel<Boolean>(Channel.BUFFERED)
     internal val exportResults = exportResult.receiveAsFlow()
+
+    private val protocolExporting = MutableStateFlow(false)
+    internal val isProtocolExporting = protocolExporting.asStateFlow()
+    private val protocolExportResult = Channel<Boolean>(Channel.BUFFERED)
+    internal val protocolExportResults = protocolExportResult.receiveAsFlow()
 
     private val onboardingStep = MutableStateFlow<TranscriptOnboardingStep?>(null)
     internal val transcriptOnboardingStep = onboardingStep.asStateFlow()
@@ -96,6 +114,38 @@ class RecordingViewModel @Inject constructor(
             }
         }
         return true
+    }
+
+    /** Запускает опциональный протокол; повторный вызов во время работы игнорируется. */
+    fun generateProtocol() = protocolService.generate(sessionId)
+
+    /** Отменяет генерацию протокола. */
+    fun cancelProtocol() = protocolService.cancel()
+
+    internal fun exportProtocol(destination: Uri) {
+        if (!protocolExporting.compareAndSet(expect = false, update = true)) return
+        viewModelScope.launch {
+            val saved = try {
+                val detail = repository.observeSession(sessionId).first()
+                val protocol = detail?.protocol
+                if (protocol == null) {
+                    false
+                } else {
+                    protocolExporter.write(
+                        destination,
+                        ProtocolMarkdown.render(protocol, detail.session.title),
+                    )
+                    true
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            } finally {
+                protocolExporting.value = false
+            }
+            protocolExportResult.send(saved)
+        }
     }
 
     internal fun exportTranscript(destination: Uri, format: TranscriptExportFormat) {
@@ -161,9 +211,11 @@ class RecordingViewModel @Inject constructor(
 /**
  * @property loaded `false` до первого ответа БД.
  * @property detail сессия с сегментами; `null` — её нет.
+ * @property protocol состояние опционального протокола (локальная LLM).
  */
 data class RecordingUiState(
     val loaded: Boolean = false,
     val detail: SessionDetail? = null,
     val recording: RecordingState? = null,
+    val protocol: ProtocolUiState = ProtocolUiState(),
 )

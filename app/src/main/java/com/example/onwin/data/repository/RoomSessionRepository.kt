@@ -3,6 +3,7 @@ package com.example.onwin.data.repository
 import com.example.onwin.data.database.dao.SessionDao
 import com.example.onwin.data.database.entity.SegmentEntity
 import com.example.onwin.data.database.entity.SessionEntity
+import com.example.onwin.data.database.entity.SessionProtocolEntity
 import com.example.onwin.data.database.entity.SpeakerNameEntity
 import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.domain.model.Session
@@ -12,13 +13,20 @@ import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.model.SpeakerName
 import com.example.onwin.domain.model.TranscriptSegment
 import com.example.onwin.domain.repository.SessionRepository
+import com.example.speech.api.ProtocolAction
+import com.example.speech.api.ProtocolNotes
+import com.example.speech.api.ProtocolParticipant
 import com.example.speech.api.Segment
+import com.example.speech.api.TranscriptLanguage
 import java.io.File
 import java.time.Clock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 /**
  * [SessionRepository] поверх Room.
@@ -32,6 +40,10 @@ class RoomSessionRepository(
     private val recordingsDir: File,
     private val clock: Clock,
 ) : SessionRepository {
+    private val protocolJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
     override suspend fun rename(id: String, title: String): Boolean =
         dao.rename(id, title, clock.millis()) != 0
 
@@ -62,6 +74,7 @@ class RoomSessionRepository(
                 speakerNames = row.speakerNames.map { speaker -> SpeakerName(speaker.speaker, speaker.name) },
                 summary = row.notes?.summary,
                 suggestedNames = row.suggestions.map { suggestion -> SpeakerName(suggestion.speaker, suggestion.name) },
+                protocol = row.protocol?.let { decodeProtocol(it.payload) },
             )
         }
     }
@@ -92,7 +105,20 @@ class RoomSessionRepository(
     override suspend fun clearAnalysis(id: String) {
         dao.clearNotes(id)
         dao.clearSuggestions(id)
+        dao.clearProtocol(id)
     }
+
+    override suspend fun saveProtocol(id: String, protocol: ProtocolNotes) {
+        dao.upsertProtocol(
+            SessionProtocolEntity(
+                sessionId = id,
+                payload = encodeProtocol(protocol),
+                createdAt = clock.millis(),
+            ),
+        )
+    }
+
+    override suspend fun clearProtocol(id: String) = dao.clearProtocol(id)
 
     override suspend fun failUnfinished(errorCode: ErrorCode): Int = dao.failUnfinished(errorCode, clock.millis())
 
@@ -146,6 +172,55 @@ class RoomSessionRepository(
 
     private fun Segment.toEntity(sessionId: String, index: Int) =
         SegmentEntity(sessionId, index, speaker, startMs, endMs, text)
+
+    private fun encodeProtocol(protocol: ProtocolNotes): String = protocolJson.encodeToString(
+        StoredProtocol(
+            participants = protocol.participants.map {
+                StoredParticipant(it.speaker, it.speakerId, it.name)
+            },
+            summary = protocol.summary,
+            decisions = protocol.decisions,
+            actions = protocol.actions.map { StoredAction(it.task, it.owner, it.due) },
+            language = protocol.language.name,
+        ),
+    )
+
+    private fun decodeProtocol(payload: String): ProtocolNotes? = runCatching {
+        val stored = protocolJson.decodeFromString<StoredProtocol>(payload)
+        ProtocolNotes(
+            participants = stored.participants.map {
+                ProtocolParticipant(it.speaker, it.speakerId, it.name)
+            },
+            summary = stored.summary,
+            decisions = stored.decisions,
+            actions = stored.actions.map { ProtocolAction(it.task, it.owner, it.due) },
+            language = runCatching { TranscriptLanguage.valueOf(stored.language) }
+                .getOrDefault(TranscriptLanguage.UNKNOWN),
+        )
+    }.getOrNull()
+
+    @Serializable
+    private data class StoredProtocol(
+        val participants: List<StoredParticipant>,
+        val summary: String,
+        val decisions: List<String>,
+        val actions: List<StoredAction>,
+        val language: String,
+    )
+
+    @Serializable
+    private data class StoredParticipant(
+        val speaker: Int,
+        @SerialName("speaker_id") val speakerId: String,
+        val name: String,
+    )
+
+    @Serializable
+    private data class StoredAction(
+        val task: String,
+        val owner: String,
+        val due: String,
+    )
 
     private companion object {
         const val WAV_SUFFIX = ".wav"

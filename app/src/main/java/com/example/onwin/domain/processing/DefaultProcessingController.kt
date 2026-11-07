@@ -11,8 +11,10 @@ import com.example.speech.api.Stage
 import com.example.speech.api.StreamingEvent
 import com.example.speech.api.StreamingTranscriber
 import com.example.speech.api.TextCorrector
+import com.example.speech.api.TranscriptLanguage
 import com.example.speech.api.Transcriber
 import com.example.speech.api.TranscriptionEvent
+import com.example.speech.api.detectTranscriptLanguage
 import com.example.speech.api.TranscriptAnalyzer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -724,7 +726,9 @@ class DefaultProcessingController(
             report(active, ProcessingStage.CORRECTING, 0f)
 
             var segments = source
-            if (corrector != null) {
+            // Русский корректор на английском может испортить текст: для EN оставляем ASR как есть.
+            val language = detectTranscriptLanguage(source.joinToString(" ") { it.text })
+            if (corrector != null && language != TranscriptLanguage.EN) {
                 loadLlm(batch)
                 val mark = TimeSource.Monotonic.markNow()
                 segments = correctSegments(corrector, source) { fraction ->

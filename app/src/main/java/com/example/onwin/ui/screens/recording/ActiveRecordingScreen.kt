@@ -87,6 +87,7 @@ import com.example.onwin.domain.model.SpeakerName
 import com.example.onwin.domain.model.SessionDetail
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
+import com.example.onwin.domain.processing.ProtocolUiState
 import com.example.onwin.domain.repository.TranscriptOnboardingStep
 import com.example.onwin.ui.components.GlassButton
 import com.example.onwin.ui.components.recordingPanelPrimary
@@ -117,6 +118,8 @@ import com.example.onwin.ui.theme.TranscriptHighlightLabel
 import com.example.onwin.ui.theme.TranscriptHighlightText
 import com.example.onwin.ui.theme.recordingCardBackground
 import com.example.onwin.ui.theme.transcriptHighlight
+import com.example.speech.api.ProtocolNotes
+import com.example.speech.api.TranscriptLanguage
 import kotlin.math.roundToInt
 
 @Composable
@@ -142,6 +145,11 @@ internal fun ActiveRecordingScreen(
     exportInProgress: Boolean = false,
     onExport: (() -> Unit)? = null,
     onApplySuggestedName: ((Int, String) -> Unit)? = null,
+    protocolState: ProtocolUiState = ProtocolUiState(),
+    protocolExporting: Boolean = false,
+    onGenerateProtocol: (() -> Unit)? = null,
+    onCancelProtocol: (() -> Unit)? = null,
+    onExportProtocol: (() -> Unit)? = null,
     panelSlot: NavigationPanelSlot? = null,
     panelDimmed: Boolean = false,
     onboardingStep: TranscriptOnboardingStep? = null,
@@ -258,13 +266,27 @@ internal fun ActiveRecordingScreen(
                                 val suggested = detail.suggestedNames.filterNot { suggestion ->
                                     detail.speakerNames.any { it.speaker == suggestion.speaker }
                                 }
-                                if (detail.summary != null || suggested.isNotEmpty()) {
+                                val protocolAvailable = detail.session.status == SessionStatus.DONE &&
+                                    protocolState.available && onGenerateProtocol != null
+                                if (detail.summary != null || suggested.isNotEmpty() ||
+                                    detail.protocol != null || protocolAvailable
+                                ) {
                                     Spacer(Modifier.height(12.dp))
-                                    LlmNotes(detail.summary, suggested, onApplySuggestedName)
+                                    LlmNotes(
+                                        summary = detail.summary,
+                                        suggestions = suggested,
+                                        onApply = onApplySuggestedName,
+                                        protocol = detail.protocol,
+                                        protocolState = protocolState,
+                                        protocolExporting = protocolExporting,
+                                        canGenerate = protocolAvailable,
+                                        onGenerate = onGenerateProtocol,
+                                        onCancel = onCancelProtocol,
+                                        onExport = onExportProtocol,
+                                    )
                                 }
                                 Spacer(Modifier.height(14.dp))
                             }
-                        }
                         }
                         val maxHeight = if (status == SessionStatus.DONE) Modifier else {
                             val collapsedHeight = if (compact) 184.dp else 208.dp
@@ -699,11 +721,19 @@ private fun recordingControlsPanel(
     },
 )
 
+
 @Composable
 private fun LlmNotes(
     summary: String?,
     suggestions: List<SpeakerName>,
     onApply: ((Int, String) -> Unit)?,
+    protocol: ProtocolNotes?,
+    protocolState: ProtocolUiState,
+    protocolExporting: Boolean,
+    canGenerate: Boolean,
+    onGenerate: (() -> Unit)?,
+    onCancel: (() -> Unit)?,
+    onExport: (() -> Unit)?,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth().recordingSurface().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -748,6 +778,99 @@ private fun LlmNotes(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+            }
+        }
+
+        if (protocol != null) {
+            Text(
+                text = stringResource(R.string.llm_protocol_title),
+                color = RecordingDurationColor,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            if (protocol.language == TranscriptLanguage.EN) {
+                Text(
+                    text = stringResource(R.string.llm_protocol_language_en),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (protocol.participants.isNotEmpty()) {
+                Text(
+                    text = protocol.participants.joinToString(" · ") {
+                        it.name.ifBlank { "Спикер ${it.speaker + 1}" }
+                    },
+                    color = RecordingTranscriptText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (protocol.decisions.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.llm_protocol_decisions),
+                    color = RecordingDurationColor,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                protocol.decisions.take(5).forEachIndexed { index, decision ->
+                    Text(
+                        text = "${index + 1}. $decision",
+                        color = RecordingTranscriptText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (protocol.actions.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.llm_protocol_actions),
+                    color = RecordingDurationColor,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                protocol.actions.take(5).forEach { action ->
+                    val details = listOfNotNull(
+                        action.owner.takeIf { it.isNotBlank() },
+                        action.due.takeIf { it.isNotBlank() },
+                    ).joinToString(" · ")
+                    Text(
+                        text = if (details.isBlank()) action.task else "${action.task} — $details",
+                        color = RecordingTranscriptText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (onExport != null) {
+                GlassButton(
+                    text = stringResource(R.string.llm_protocol_export),
+                    onClick = onExport,
+                    enabled = !protocolExporting,
+                )
+            }
+        } else if (canGenerate && onGenerate != null) {
+            if (protocolState.running) {
+                Text(
+                    text = stringResource(R.string.llm_protocol_running),
+                    color = RecordingDurationColor,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (onCancel != null) {
+                    GlassButton(
+                        text = stringResource(R.string.llm_protocol_cancel),
+                        onClick = onCancel,
+                    )
+                }
+            } else {
+                GlassButton(
+                    text = stringResource(R.string.llm_protocol_generate),
+                    onClick = onGenerate,
+                )
+            }
+            protocolState.error?.let { error ->
+                Text(
+                    text = error,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }
