@@ -1,0 +1,11 @@
+# Large downloaded audio and generated references stay local.
+*.parquet
+*.wav
+*.TextGrid
+*.rttm
+*.jsonl
+*.log
+*.parts/
+*.pieces
+__pycache__/
+*.pyc

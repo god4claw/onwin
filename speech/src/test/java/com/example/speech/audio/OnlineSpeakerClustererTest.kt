@@ -108,4 +108,65 @@ class OnlineSpeakerClustererTest {
         } catch (_: IllegalArgumentException) {
         }
     }
+
+    @Test
+    fun `new speaker is deferred until enough speech`() {
+        val clusterer = OnlineSpeakerClusterer(
+            threshold = 0.5f,
+            minNewSpeakerSamples = 32_000,
+        )
+
+        val first = clusterer.assign(floatArrayOf(1f, 0f), durationSamples = 16_000)
+        val pending = clusterer.assign(floatArrayOf(0f, 1f), durationSamples = 16_000)
+        val promoted = clusterer.assign(floatArrayOf(0f, 1f), durationSamples = 16_000)
+
+        assertEquals(0, first.speaker)
+        assertEquals(0, pending.speaker)
+        assertFalse(pending.isNewSpeaker)
+        assertEquals(1, promoted.speaker)
+        assertTrue(promoted.isNewSpeaker)
+        assertEquals(2, clusterer.speakerCount)
+    }
+
+    @Test
+    fun `pending new speaker is cleared when known speaker returns`() {
+        val clusterer = OnlineSpeakerClusterer(
+            threshold = 0.5f,
+            minNewSpeakerSamples = 32_000,
+        )
+
+        clusterer.assign(floatArrayOf(1f, 0f), durationSamples = 16_000)
+        clusterer.assign(floatArrayOf(0f, 1f), durationSamples = 16_000)
+        val known = clusterer.assign(floatArrayOf(1f, 0f), durationSamples = 16_000)
+        val pendingAgain = clusterer.assign(floatArrayOf(0f, 1f), durationSamples = 16_000)
+        val promoted = clusterer.assign(floatArrayOf(0f, 1f), durationSamples = 16_000)
+
+        assertEquals(0, known.speaker)
+        assertEquals(0, pendingAgain.speaker)
+        assertEquals(1, promoted.speaker)
+        assertEquals(2, clusterer.speakerCount)
+    }
+
+    @Test
+    fun `dissimilar pending candidates do not create a cluster together`() {
+        val clusterer = OnlineSpeakerClusterer(
+            threshold = 0.5f,
+            minNewSpeakerSamples = 24_000,
+        )
+
+        clusterer.assign(floatArrayOf(1f, 0f, 0f), durationSamples = 16_000)
+        clusterer.assign(floatArrayOf(0f, 1f, 0f), durationSamples = 8_000)
+        clusterer.assign(floatArrayOf(0f, 0f, 1f), durationSamples = 8_000)
+
+        assertEquals(1, clusterer.speakerCount)
+    }
+
+    @Test
+    fun rejectsNegativePendingSupport() {
+        try {
+            OnlineSpeakerClusterer(threshold = 0.5f, minNewSpeakerSamples = -1)
+            fail("Ожидался IllegalArgumentException")
+        } catch (_: IllegalArgumentException) {
+        }
+    }
 }

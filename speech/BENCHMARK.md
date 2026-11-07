@@ -7,13 +7,15 @@
 PowerShell:
 
 ```powershell
-.\speech\scripts\benchmark.ps1 -Wav .\sample.wav -Mode both -Runs 3 -Threads 4
+.\speech\scripts\benchmark.ps1 -Wav .\sample.wav -Mode both -Runs 3 -Threads 4 `
+    -AutoThreshold 0.7 -OnlineThreshold 0.5
 ```
 
 bash:
 
 ```bash
-./speech/scripts/benchmark.sh --wav sample.wav --mode both --runs 3 --threads 4
+./speech/scripts/benchmark.sh --wav sample.wav --mode both --runs 3 --threads 4 \
+    --auto-threshold 0.7 --online-threshold 0.5
 ```
 
 Скрипт собирает и устанавливает `:speech:installDebugAndroidTest`, заливает WAV через adb, запускает `SpeechBenchmarkTest` и забирает результаты на хост.
@@ -51,6 +53,11 @@ WAV и результаты лежат в **internal storage** приложен�
 | `-Threads` | `--threads` | `4` | Потоки ASR |
 | `-Runs` | `--runs` | `3` | Повторов на режим |
 | `-ChunkMs` | `--chunk-ms` | `100` | Размер streaming-чанка, мс |
+| `-AutoThreshold` | `--auto-threshold` | `0.80` | Порог batch-автокластеризации, `0..1` |
+| `-OnlineThreshold` | `--online-threshold` | `0.45` | Порог streaming-кластеризации, `0..1` |
+| `-PruneMinMs` | `--prune-min-ms` | `3000` | Минимальная длительность кластера после pruning, мс |
+| `-PruneMinFraction` | `--prune-min-fraction` | `0.05` | Минимальная доля речи для кластера, `0..1` |
+| `-SpeakerChangeThreshold` | `--speaker-change-threshold` | `0.65` | Порог косинуса для смены говорящего, `0..1` |
 | `-Serial` | `--serial` | первый | Серийный номер adb-устройства |
 | `-OutDir` | `--out` | `bench-results` | Каталог результатов |
 | `-NoBuild` | `--no-build` | — | Не собирать и не устанавливать APK |
@@ -61,6 +68,6 @@ WAV и результаты лежат в **internal storage** приложен�
 - `bench-results/<label>-<timestamp>.txt`
 - `latest.json` и `latest.txt` в каталоге результатов.
 
-JSON содержит `schemaVersion`, `generatedAt`, `label`, `mode`, `audio`, `config`, `device`, `batch`, `streaming`. Для каждого режима есть `modelLoadMs`, список `runs` и `summary` с медианами: `medianTotalMs`, `medianRtf`, `medianSpeedX`, `medianPssMb`, `medianSpeakerCount`, `medianSegments`.
+JSON содержит `schemaVersion`, `generatedAt`, `label`, `mode`, `audio`, `config`, `device`, `batch`, `streaming`. В `config` пишутся `threads`, `runs`, `speakers`, `chunkMs`, `autoClusterThreshold`, `onlineClusterThreshold`, `clusterPruneMinMs`, `clusterPruneMinFraction`, `speakerChangeThreshold`. Для каждого режима есть `modelLoadMs`, список `runs` и `summary` с медианами: `medianTotalMs`, `medianRtf`, `medianSpeedX`, `medianPssMb`, `medianSpeakerCount`, `medianSegments`.
 
 Таблица показывает по каждому прогону время, RTF, скорость, PSS, число спикеров и сегментов.

@@ -103,7 +103,11 @@ internal data class BenchmarkConfig(
     val runs: Int,
     val speakers: String,
     val chunkMs: Int,
+    val autoClusterThreshold: Float,
     val onlineClusterThreshold: Float,
+    val clusterPruneMinMs: Int,
+    val clusterPruneMinFraction: Float,
+    val speakerChangeThreshold: Float,
 )
 
 internal data class BatchRun(
@@ -267,7 +271,11 @@ private fun BenchmarkConfig.toJson(): JSONObject = JSONObject().apply {
     put("runs", runs)
     put("speakers", speakers)
     put("chunkMs", chunkMs)
+    put("autoClusterThreshold", autoClusterThreshold)
     put("onlineClusterThreshold", onlineClusterThreshold)
+    put("clusterPruneMinMs", clusterPruneMinMs)
+    put("clusterPruneMinFraction", clusterPruneMinFraction)
+    put("speakerChangeThreshold", speakerChangeThreshold)
 }
 
 private fun BenchmarkDevice.toJson(): JSONObject = JSONObject().apply {
@@ -380,7 +388,11 @@ internal fun BenchmarkReport.formatTable(): String {
     )
     out.appendLine(
         "config: mode=$mode threads=${config.threads} runs=${config.runs} " +
-            "speakers=${config.speakers} chunk=${config.chunkMs}ms",
+            "speakers=${config.speakers} chunk=${config.chunkMs}ms " +
+            "autoThreshold=${config.autoClusterThreshold} " +
+            "onlineThreshold=${config.onlineClusterThreshold} " +
+            "prune=${config.clusterPruneMinMs}ms/${config.clusterPruneMinFraction} " +
+            "change=${config.speakerChangeThreshold}",
     )
 
     batch?.let { result ->

@@ -40,6 +40,15 @@ class SpeechBenchmarkTest {
         val threads = positiveInt("threads", 4)
         val runs = positiveInt("runs", 3)
         val chunkMs = positiveInt("chunk_ms", 100)
+        val defaults = SpeechConfig()
+        val autoThreshold = threshold("auto_threshold", defaults.autoClusterThreshold)
+        val onlineThreshold = threshold("online_threshold", defaults.onlineClusterThreshold)
+        val pruneMinMs = nonNegativeInt("prune_min_ms", defaults.clusterPruneMinMs)
+        val pruneMinFraction = threshold("prune_min_fraction", defaults.clusterPruneMinFraction)
+        val speakerChangeThreshold = threshold(
+            "speaker_change_threshold",
+            defaults.speakerChangeThreshold,
+        )
 
         val speakersArg = args.getString("speakers")
             ?.trim()
@@ -69,16 +78,39 @@ class SpeechBenchmarkTest {
             runs = runs,
             speakers = speakersArg,
             chunkMs = chunkMs,
-            onlineClusterThreshold = SpeechConfig().onlineClusterThreshold,
+            autoClusterThreshold = autoThreshold,
+            onlineClusterThreshold = onlineThreshold,
+            clusterPruneMinMs = pruneMinMs,
+            clusterPruneMinFraction = pruneMinFraction,
+            speakerChangeThreshold = speakerChangeThreshold,
         )
 
         val batch = if (mode == "batch" || mode == "both") {
-            runBatch(wav, audioMs, threads, runs, expectedSpeakers)
+            runBatch(
+                wav = wav,
+                audioMs = audioMs,
+                threads = threads,
+                runs = runs,
+                expectedSpeakers = expectedSpeakers,
+                autoClusterThreshold = autoThreshold,
+                pruneMinMs = pruneMinMs,
+                pruneMinFraction = pruneMinFraction,
+            )
         } else {
             null
         }
         val streaming = if (streamingSamples != null) {
-            runStreaming(streamingSamples, audioMs, threads, runs, chunkMs)
+            runStreaming(
+                samples = streamingSamples,
+                audioMs = audioMs,
+                threads = threads,
+                runs = runs,
+                chunkMs = chunkMs,
+                onlineClusterThreshold = onlineThreshold,
+                pruneMinMs = pruneMinMs,
+                pruneMinFraction = pruneMinFraction,
+                speakerChangeThreshold = speakerChangeThreshold,
+            )
         } else {
             null
         }
@@ -114,11 +146,21 @@ class SpeechBenchmarkTest {
         threads: Int,
         runs: Int,
         expectedSpeakers: Int?,
+        autoClusterThreshold: Float,
+        pruneMinMs: Int,
+        pruneMinFraction: Float,
     ): BatchResult {
         val transcriber = SherpaTranscriber(context)
         val loadStart = SystemClock.elapsedRealtime()
         try {
-            transcriber.load(SpeechConfig(numThreads = threads))
+            transcriber.load(
+                SpeechConfig(
+                    numThreads = threads,
+                    autoClusterThreshold = autoClusterThreshold,
+                    clusterPruneMinMs = pruneMinMs,
+                    clusterPruneMinFraction = pruneMinFraction,
+                ),
+            )
             val modelLoadMs = SystemClock.elapsedRealtime() - loadStart
             val results = ArrayList<BatchRun>(runs)
             repeat(runs) { index ->
@@ -190,11 +232,23 @@ class SpeechBenchmarkTest {
         threads: Int,
         runs: Int,
         chunkMs: Int,
+        onlineClusterThreshold: Float,
+        pruneMinMs: Int,
+        pruneMinFraction: Float,
+        speakerChangeThreshold: Float,
     ): StreamingResult {
         val transcriber = SherpaStreamingTranscriber(context)
         val loadStart = SystemClock.elapsedRealtime()
         try {
-            transcriber.load(SpeechConfig(numThreads = threads))
+            transcriber.load(
+                SpeechConfig(
+                    numThreads = threads,
+                    onlineClusterThreshold = onlineClusterThreshold,
+                    clusterPruneMinMs = pruneMinMs,
+                    clusterPruneMinFraction = pruneMinFraction,
+                    speakerChangeThreshold = speakerChangeThreshold,
+                ),
+            )
             val modelLoadMs = SystemClock.elapsedRealtime() - loadStart
             val results = ArrayList<StreamingRun>(runs)
             repeat(runs) { index ->
@@ -284,6 +338,22 @@ class SpeechBenchmarkTest {
         val value = raw.toIntOrNull()
             ?: error("$name должен быть целым числом, получено: $raw")
         require(value >= 1) { "$name должен быть >= 1, получено: $value" }
+        return value
+    }
+
+    private fun nonNegativeInt(name: String, default: Int): Int {
+        val raw = args.getString(name)?.takeIf { it.isNotBlank() } ?: return default
+        val value = raw.toIntOrNull()
+            ?: error("$name должен быть целым числом, получено: $raw")
+        require(value >= 0) { "$name должен быть >= 0, получено: $value" }
+        return value
+    }
+
+    private fun threshold(name: String, default: Float): Float {
+        val raw = args.getString(name)?.takeIf { it.isNotBlank() } ?: return default
+        val value = raw.toFloatOrNull()
+            ?: error("$name должен быть числом, получено: $raw")
+        require(value in 0f..1f) { "$name должен быть в 0..1, получено: $value" }
         return value
     }
 
