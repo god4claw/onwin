@@ -2,6 +2,7 @@ package com.example.speech.impl
 
 import com.example.speech.api.Segment
 import com.example.speech.api.TextGenerator
+import com.example.speech.api.TranscriptLanguage
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -126,5 +127,59 @@ class LlmDialogueAnalyzerTest {
         assertNull(analyzer.analyze(emptyList()))
         assertNull(analyzer.analyze(dialogue("   ")))
         assertTrue(generator.prompts.isEmpty())
+    }
+
+    @Test
+    fun protocol_parsesSectionsAndKeepsParticipants() = runTest {
+        val generator = FakeGenerator {
+            """
+            КРАТКО:
+            Обсудили релиз и перенесли его на 20 ноября.
+            РЕШЕНИЯ:
+            - Перенести релиз на 20 ноября
+            ПОРУЧЕНИЯ:
+            - Подготовить сборку | Игорь | 15 ноября
+            """.trimIndent()
+        }
+        val analyzer = LlmDialogueAnalyzer(generator)
+
+        val notes = analyzer.analyzeProtocol(
+            dialogue(
+                "Меня зовут Анна, начнём встречу и обсудим релиз.",
+                "Я Игорь, подготовлю сборку к 15 ноября.",
+            ),
+            mapOf(0 to "Анна", 1 to "Игорь"),
+        )
+
+        assertEquals(listOf("Анна", "Игорь"), notes?.participants?.map { it.name })
+        assertEquals("Обсудили релиз и перенесли его на 20 ноября.", notes?.summary)
+        assertEquals(listOf("Перенести релиз на 20 ноября"), notes?.decisions)
+        assertEquals("Игорь", notes?.actions?.single()?.owner)
+        assertEquals(1, generator.prompts.size)
+    }
+
+    @Test
+    fun protocol_handlesEnglishAndEmptyNames() = runTest {
+        val generator = FakeGenerator {
+            """
+            SUMMARY:
+            The team discussed the release and moved it to November 20.
+            DECISIONS:
+            - Move the release to November 20
+            ACTIONS:
+            """.trimIndent()
+        }
+        val analyzer = LlmDialogueAnalyzer(generator)
+
+        val notes = analyzer.analyzeProtocol(
+            dialogue(
+                "We discussed the schedule and agreed on the release date.",
+                "Let us move the release to November 20.",
+            ),
+        )
+
+        assertEquals(TranscriptLanguage.EN, notes?.language)
+        assertTrue(notes?.participants?.all { it.name.isEmpty() } == true)
+        assertEquals(listOf("Move the release to November 20"), notes?.decisions)
     }
 }
