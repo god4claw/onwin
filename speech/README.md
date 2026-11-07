@@ -1,0 +1,506 @@
+# `:speech` — офлайн-распознавание и диаризация речи
+
+ML-модуль приложения `onwin`: русская речь → текст с таймкодами и метками говорящих. Считается на устройстве, сеть в рантайме не нужна. Веса лежат в APK и читаются через `AssetManager`.
+
+- **Batch:** готовый WAV → диаризация → сегменты с текстом.
+- **Streaming (псевдостриминг):** поток PCM 16 кГц → VAD → распознавание каждой реплики → онлайн-кластеризация говорящих.
+- Стек: GigaAM-v3 e2e CTC (ASR), pyannote segmentation + CAM++ (диаризация), Silero VAD, sherpa-onnx 1.13.0.
+- `minSdk 29`, `compileSdk 37`, Kotlin 2.4.21, JDK 17.
+
+Модуль отвечает за ML и чтение WAV. UI, Room, очередь, foreground-сервис, разрешения, декодирование и ресемплинг, хранение файлов и экспорт — на стороне приложения.
+
+## Содержание
+
+- [Что делает модуль](#что-делает-модуль)
+- [Публичный API](#публичный-api)
+- [Batch](#batch)
+- [Streaming](#streaming)
+- [Модели](#модели)
+- [Сборка и тесты](#сборка-и-тесты)
+- [Устройство модуля](#устройство-модуля)
+- [Ограничения](#ограничения)
+- [Производительность](#производительность)
+- [Интеграция в приложение](#интеграция-в-приложение)
+  - [Подключение](#подключение)
+  - [Точка замены](#точка-замены)
+  - [Очередь и отмена](#очередь-и-отмена)
+  - [Ошибки](#ошибки)
+  - [Память и процесс](#память-и-процесс)
+  - [Диагностика](#диагностика)
+  - [Чек-лист](#чек-лист)
+
+## Что делает модуль
+
+### Batch-пайплайн
+
+```text
+WAV 16 кГц моно PCM16
+   → pyannote segmentation + CAM++ embeddings + FastClustering
+   → сегменты с номерами говорящих
+   → ASR GigaAM-v3 по каждому сегменту (куски до 45 с, разрез по тихой границе)
+   → Flow<TranscriptionEvent>: прогресс, сегменты по мере готовности, Done
+```
+
+Спикеры нумеруются `0..N-1` в порядке первого появления. Таймкоды — миллисекунды от начала файла. Короткие обрывки диаризации (< 0,7 с) приклеиваются к соседней длинной реплике, если разрыв не больше 0,25 с и сосед больше чем вдвое длиннее. Сегменты короче 200 мс и пустой текст не отдаются.
+
+### Streaming-пайплайн
+
+```text
+Flow<FloatArray> 16 кГц моно, [-1..1], любой размер чанка
+   → Silero VAD (окно 512 сэмплов)
+   → SpeechStarted при начале речи
+   → по тишине (450 мс) или максимуму (25 с) реплика уходит в ASR
+   → speaker embedding (CAM++) + онлайн-кластеризация по косинусу
+   → Utterance с текстом, таймкодами и номером говорящего
+   → Done после завершения входного Flow
+```
+
+Это не потоковая выдача слов: промежуточных гипотез нет, текст появляется после окончания реплики. Задержка — хвост VAD-тишины плюс время распознавания реплики.
+
+## Публичный API
+
+`com.example.speech.api` — контракт. `com.example.speech.impl` — реализации. `com.example.speech.audio` и `com.example.speech.data.BundledModels` — `internal`, приложению недоступны. `ModelDownloader` и `ModelRegistry` публичны, но это вспомогательные классы без сетевой загрузки (см. «Модели»).
+
+```kotlin
+interface Transcriber {
+    suspend fun load(config: SpeechConfig)
+    fun transcribe(wav: File): Flow<TranscriptionEvent>
+    fun transcribe(wav: File, expectedSpeakers: Int?): Flow<TranscriptionEvent> = transcribe(wav)
+    fun release()
+}
+
+class SherpaTranscriber(context: Context) : Transcriber
+
+interface StreamingTranscriber {
+    suspend fun load(config: SpeechConfig)
+    fun transcribeStream(audio: Flow<FloatArray>): Flow<StreamingEvent>
+    fun release()
+}
+
+class SherpaStreamingTranscriber(context: Context) : StreamingTranscriber
+```
+
+```kotlin
+data class Segment(
+    val speaker: Int,   // 0..N-1, стабилен в пределах одной расшифровки/стрима
+    val startMs: Long,  // от начала аудио
+    val endMs: Long,
+    val text: String,
+)
+
+enum class Stage { DIARIZATION, RECOGNITION }
+
+sealed interface TranscriptionEvent {
+    data class Progress(val stage: Stage, val fraction: Float) : TranscriptionEvent
+    data class SegmentReady(val segment: Segment) : TranscriptionEvent
+    data class Done(val segments: List<Segment>) : TranscriptionEvent
+    data class Failed(val cause: Throwable) : TranscriptionEvent
+}
+
+sealed interface StreamingEvent {
+    data class SpeechStarted(val startMs: Long) : StreamingEvent
+    data class Utterance(val segment: Segment) : StreamingEvent
+    data class Done(val segments: List<Segment>) : StreamingEvent
+    data class Failed(val cause: Throwable) : StreamingEvent
+}
+```
+
+`SpeechConfig`:
+
+| Поле | По умолчанию | Смысл |
+|---|---|---|
+| `numThreads: Int` | `4` | Потоки ASR и диаризации (VAD — всегда 1), `>= 1` |
+| `embeddingModel` | `CAMPLUS` | Единственный вариант: `speaker_embedding_camplus.onnx` |
+| `autoClusterThreshold` | `0.80f` | Distance threshold для batch-авторежима: **ниже → больше говорящих**. При заданном `expectedSpeakers` не используется |
+| `onlineClusterThreshold` | `0.45f` | Косинусный порог streaming-кластеризации: **выше → больше говорящих**, `0..1` |
+| `maxOnlineSpeakers` | `20` | Потолок говорящих в стриме, `>= 1` |
+| `vad: VadConfig` | см. ниже | Только streaming |
+| `agc: AgcConfig` | см. ниже | Зарезервировано под АРУ перед VAD; в этом срезе не используется |
+| `speakerReclusterThreshold` | `0.60f` | Зарезервировано под финальную перекластеризацию; в этом срезе не используется |
+
+`VadConfig`: `threshold = 0.5f`, `minSilenceMs = 450`, `minSpeechMs = 250`, `maxSpeechMs = 25_000`.
+
+`AgcConfig`: `enabled = true`, `targetDbfs = -20f`, `maxGainDb = 24f`. Поля контракта под автоматическую регулировку усиления; в этом срезе ещё не используются.
+
+`SpeechConfig` и `VadConfig` проверяют значения в `init`: `onlineClusterThreshold` в `0..1`, `maxOnlineSpeakers >= 1`, `threshold` в `0..1`, `minSilenceMs >= 0`, `minSpeechMs >= 0`, `maxSpeechMs > minSpeechMs`. `load()` дополнительно проверяет `numThreads >= 1`.
+
+`ModelDownloader` и `ModelRegistry` публичны, но сетевой загрузки нет: `downloadMissing()` ничего не скачивает, проверяет наличие весов и бросает `IllegalStateException`, если чего-то нет. `ModelRegistry.required`/`totalBytes` и `ModelDownloader.cachedBytes()` покрывают только ASR и embedding. Полный список и SHA-256 — в `speech/models.sha256`; размеры — в таблице ниже.
+
+## Batch
+
+### `load(config)`
+
+- `suspend`, main-safe, идемпотентен: повторный вызов с равным `SpeechConfig` — no-op.
+- Холодная загрузка: 5–10 с, ~450 МБ PSS (в основном native).
+- Бросает исключения, а не отдаёт их через `Flow`: `IllegalArgumentException` при `numThreads < 1`, `IllegalStateException`, если размеры весов не совпадают или их нет, плюс ошибки native.
+- Вызывать до первого `transcribe()`. Без `load()` расшифровка отдаст `Failed(IllegalStateException("Модели не загружены..."))`.
+
+### `transcribe(wav)`
+
+- Холодный `Flow`: работа начинается при `collect`. Отмена коллектора останавливает работу.
+- События:
+  - `Progress(stage, fraction)` — `fraction` в `0..1` внутри этапа. При `expectedSpeakers = 1` диаризация пропускается, поэтому `DIARIZATION` быстро проходит 0 → 1.
+  - `SegmentReady` — сегменты по мере распознавания, в порядке времени. Можно сразу писать в БД.
+  - `Done(segments)` — финальный список. Нужно **заменять** им накопленные сегменты, а не дописывать.
+  - `Failed(cause)` — терминальное событие, после него Flow завершается. Частичные сегменты, пришедшие до ошибки, остаются валидными.
+- Если Flow завершился без `Done` и без `Failed` — это ошибка (`TRANSCRIPTION_FAILED`).
+- Одновременные вызовы сериализуются внутренним `Mutex`, но приложению всё равно нужна отдельная очередь: две расшифровки параллельно запускать не стоит.
+- Отмена кооперативная: проверка идёт между сегментами. Диаризация — один блокирующий native-вызов, поэтому отмена во время неё вступит в силу только после завершения. В UI лучше показывать «Останавливаем…», а не ждать мгновенного `CANCELLED`.
+
+### `transcribe(wav, expectedSpeakers)`
+
+| Значение | Поведение |
+|---|---|
+| `null` | Автоопределение числа говорящих |
+| `1` | Диаризация пропускается, весь файл — один говорящий. Заметно быстрее |
+| `2..20` | Диаризация с фиксированным числом кластеров |
+| иное | `Failed(IllegalArgumentException)`, Flow завершается |
+
+Если число участников известно, лучше передать его: результат стабильнее. Для `1` это ещё и заметно быстрее; для `2..20` основной выигрыш — стабильность, не скорость.
+
+В текущем `DefaultProcessingController` число не передаётся: вызывается `transcribe(wav)`, то есть авто-режим. Если в UI появится выбор числа говорящих, его нужно протянуть через `QueuedJob`/`process` в `transcribe(wav, expectedSpeakers)`.
+
+### `release()`
+
+- Не `suspend`, идемпотентен, освобождает native-память моделей (большую часть ~450 МБ PSS).
+- Вызывать после завершения Flow, когда очередь пуста, и в `finally`. Не вызывать во время активной расшифровки — это гонка с native-объектами.
+- Без `release()` память не вернётся: финализаторов и `Closeable` нет.
+
+### Входной WAV
+
+| Параметр | Требование |
+|---|---|
+| Контейнер | `RIFF/WAVE`, `fmt ` ровно 16 байт на смещении 12 |
+| `data` | сразу на смещении 36, без `LIST`/`fact` и других чанков |
+| Формат | PCM, знаковый 16 бит, little-endian |
+| Каналы | 1 (моно) |
+| Частота | 16 000 Гц |
+| Длительность | до 60 минут |
+| Чтение файла | приложение; `:speech` только читает |
+
+`AudioConverter` в приложении уже выдаёт такой файл. Любой другой источник (галерея, шаринг, запись) сначала нужно прогнать через него. WAV с чанками между `fmt` и `data` (например, `LIST`), стерео или 44,1 кГц будет отклонён с `Failed(IllegalArgumentException)`.
+
+Конвертер приложения принимает файлы до ~18,6 ч, а batch — только до 60 минут. Длительность лучше проверять до `transcribe()` (или сразу выбирать streaming), иначе `Failed` придёт уже после конвертации.
+
+## Streaming
+
+```kotlin
+import com.example.speech.api.StreamingEvent
+import com.example.speech.impl.SherpaStreamingTranscriber
+
+val streaming = SherpaStreamingTranscriber(context.applicationContext)
+try {
+    streaming.load(SpeechConfig(numThreads = 4))
+    streaming.transcribeStream(audioFlow).collect { event ->
+        when (event) {
+            is StreamingEvent.SpeechStarted -> showRecordingIndicator(event.startMs)
+            is StreamingEvent.Utterance -> addSegment(event.segment)
+            is StreamingEvent.Done -> finish(event.segments)
+            is StreamingEvent.Failed -> showError(event.cause)
+        }
+    }
+} finally {
+    streaming.release()
+}
+```
+
+Вход:
+
+- `Flow<FloatArray>`, 16 кГц, моно, значения `[-1..1]`.
+- Размер чанка любой; рекомендуется 100 мс = 1600 сэмплов. VAD сам собирает окна по 512 сэмплов.
+- Если микрофон отдаёт 44,1/48 кГц — ресемплировать в приложении (`StreamingResampler` уже есть). Модуль не проверяет частоту и амплитуду: при ошибке вход просто деградирует по качеству.
+- `AudioRecord` и разрешение `RECORD_AUDIO` — ответственность приложения. Источник аудио не должен блокировать поток сбора: лучше `callbackFlow` и отдельный диспетчер для чтения микрофона.
+
+События:
+
+| Событие | Смысл |
+|---|---|
+| `SpeechStarted(startMs)` | Переход «тишина → речь»; за один стрим может быть несколько раз |
+| `Utterance(segment)` | Готовая реплика: текст + таймкоды + спикер |
+| `Done(segments)` | Входной Flow завершён, все реплики обработаны |
+| `Failed(cause)` | Терминальная ошибка |
+
+Правила:
+
+- Промежуточных гипотез нет: `Utterance` приходит после тишины `minSilenceMs` (450 мс), принудительного разреза на `maxSpeechMs` (25 с) или по завершении входного Flow (`flush`).
+- Спикеры нумеруются с 0 в порядке появления и стабильны внутри одного стрима. Число говорящих ограничено `maxOnlineSpeakers`; порог — `onlineClusterThreshold` (выше → больше спикеров).
+- Реплики короче 500 мс не дают embedding и наследуют последнего говорящего. Если говорящих ещё нет, такая реплика получает спикера 0.
+- Для бесконечного микрофона `Done` не будет — остановка только отменой коллектора.
+- `release()` вызывать после завершения или отмены коллектора, не во время стрима. `release()` не сериализован с активной сессией.
+- `load()` во время активного стрима не вызывать: в streaming он использует отдельный `loadMutex` и может освободить native-объекты, которые ещё в работе. В batch `load()` сериализован с `transcribe()` общим `Mutex` и просто подождёт.
+- Одновременные стримы сериализуются; второй ждёт первый. Полагаться на это не стоит.
+- `load()` поднимает ASR + VAD + embedding (2–3 с, ~450 МБ). Segmentation-модель в streaming в рантайме не используется, но `load()` всё равно проверяет наличие всех пяти файлов.
+- Batch и streaming одновременно — две копии моделей и ~2× память. Лучше последовательно.
+
+Настройка VAD:
+
+```kotlin
+SpeechConfig(
+    vad = VadConfig(
+        threshold = 0.5f,       // 0..1, выше → меньше ложных срабатываний
+        minSilenceMs = 450,     // тишина, закрывающая реплику
+        minSpeechMs = 250,      // короче — не считаем речью
+        maxSpeechMs = 25_000,   // принудительный разрез длинной речи
+    ),
+)
+```
+
+## Модели
+
+Пять файлов, ~334 МиБ (350,3 МБ) в APK. В git не хранятся.
+
+| Файл в `speech/src/main/assets/` | Размер, байт | Назначение |
+|---|---:|---|
+| `models/gigaam_v3_e2e_ctc_int8.onnx` | 319 869 121 | ASR, русский |
+| `models/speaker_embedding_camplus.onnx` | 28 281 138 | speaker embedding |
+| `asr/segmentation.onnx` | 1 540 506 | pyannote segmentation |
+| `asr/gigaam_v3_e2e_ctc_tokens.txt` | 2 262 | токены ASR |
+| `vad/silero_vad.onnx` | 643 854 | Silero VAD |
+
+Получить и распаковать:
+
+> **Скачивание только вручную.** Репозиторий приватный, и GitHub не даёт
+> публичного доступа к отдельным файлам. Прямой ссылки на архив **нет**: ни
+> `Invoke-WebRequest`, ни `curl` без токена его не скачают — не подбирайте URL.
+>
+> 1. Откройте под своей учётной записью:
+>    `https://github.com/god4claw/onwin/releases/tag/speech-models-v1`
+> 2. Assets → `speech-models-v1.zip` → скачайте в корень репозитория.
+> 3. Распакуйте (внутри уже есть `models/`, `asr/`, `vad/`):
+
+```powershell
+Expand-Archive -Path "speech-models-v1.zip" -DestinationPath "speech/src/main/assets" -Force
+.\gradlew.bat :speech:verifyBundledModels
+```
+
+```bash
+unzip -o speech-models-v1.zip -d speech/src/main/assets
+./gradlew :speech:verifyBundledModels
+```
+
+SHA-256 архива — `00020e21641414106a335ab4e5d2bfe18d91cc8a383d645a718344411c1c937b`.
+Для CI автоматического скачивания нет: нужен либо закешированный artifact, либо
+секрет с токеном. Подробности — в корневом [`README.md`](../README.md#2-веса).
+
+`verifyBundledModels` проверяет наличие и SHA-256 всех пяти файлов (манифест — `speech/models.sha256`). В рантайме `load()` проверяет точные размеры через `AssetManager`; при несовпадении бросает `IllegalStateException` со списком отсутствующих файлов.
+
+`load()` проверяет весь набор в обоих режимах: batch не использует VAD, streaming — segmentation, но оба файла всё равно должны лежать в assets.
+
+Веса добавят к APK примерно 350 МБ (они не сжимаются). Для Google Play это больше лимита базового модуля: потребуется install-time asset pack или другая схема поставки весов. Сейчас она не реализована — это стоит учитывать при планировании релиза.
+
+## Сборка и тесты
+
+```powershell
+.\gradlew.bat :speech:verifyBundledModels
+.\gradlew.bat :speech:testDebugUnitTest
+.\gradlew.bat :speech:assembleDebug
+```
+
+JVM-тесты не требуют весов: проверяются VAD-сегментация и онлайн-кластеризация. Инструментальный бенчмарк — `speech/scripts/benchmark.ps1` / `.sh`, подробности в [`BENCHMARK.md`](BENCHMARK.md).
+
+`:speech` зависит от `sherpa-onnx:1.13.0` из `speech/local-repo`; репозиторий подключён в `settings.gradle.kts`. Модуль не публикуется в Maven — используется как `project(":speech")`. AAR отдельно не самодостаточен: `sherpa-onnx` подключён как `implementation`, плюс нужны assets.
+
+## Устройство модуля
+
+```text
+speech/src/main/java/com/example/speech/
+├── api/            публичный контракт: Transcriber, StreamingTranscriber, события, конфиг
+├── impl/           SherpaTranscriber, SherpaStreamingTranscriber, SherpaModelFactory, AsrRunner
+├── audio/          WavReader, VadSegmenter, SherpaVadEngine, OnlineSpeakerClusterer
+└── data/           ModelRegistry, ModelDownloader, BundledModels (internal)
+```
+
+- `SherpaTranscriber` держит `OfflineRecognizer` и `OfflineSpeakerDiarization`; `Mutex` сериализует расшифровки. Для `expectedSpeakers` диаризатор пересоздаётся с нужным числом кластеров; кешируется последний вариант.
+- `SherpaStreamingTranscriber` держит `OfflineRecognizer`, VAD и `SpeakerEmbeddingExtractor`; ASR идёт в отдельной корутине через очередь на 8 чанков.
+- `AsrRunner` режет длинные сегменты на куски до 45 с, ища тихую границу в последних 2 с.
+- `WavReader` читает файл целиком в `FloatArray`; поддерживается только канонический WAV (см. «Входной WAV»).
+
+## Ограничения
+
+- **Только русский язык** (GigaAM-v3). Смешанная речь и другие языки — вне поддержки.
+- **Только 16 кГц, моно, PCM16.** Batch принимает лишь канонический WAV: `RIFF/WAVE`, `fmt ` 16 байт на смещении 12, `data` сразу на смещении 36, без дополнительных чанков. Максимум 60 минут.
+- Batch читает весь WAV в память: 60 минут — это ~230 МБ Java heap сверх native-памяти моделей. Практический предел на бюджетном устройстве ниже; для длинных записей лучше streaming.
+- Streaming не даёт промежуточный текст: только готовые реплики. Таймкоды — на уровне реплик, не слов.
+- Перекрывающаяся речь и шумная запись ухудшают диаризацию. В streaming число говорящих ограничено `maxOnlineSpeakers` (по умолчанию 20); в batch `expectedSpeakers` принимает 1..20, а авто-режим жёсткого потолка не имеет.
+- Нет встроенного скачивания моделей, foreground-сервиса, разрешений, UI, БД и экспорта.
+- Один экземпляр транскрибера на процесс. Batch и streaming одновременно — это две копии моделей и ~2× память; лучше последовательно.
+- `release()` обязателен: нативный `OfflineRecognizer`/диаризатор не освобождаются сборщиком мусора.
+
+## Производительность
+
+Ориентир по бенчмарку на эмуляторе (x86_64, 6 ядер, Android 16 / API 36, 4 потока, аудио 19,75 с, 2 говорящих) — [`bench-results/`](../bench-results/). RTF — отношение времени обработки к длительности аудио, меньше — лучше.
+
+| Режим | Загрузка моделей | Время | RTF | PSS |
+|---|---:|---:|---:|---:|
+| Batch | 5,7 с | 4,8 с | 0,24 | 475 МБ |
+| Streaming | 2,1 с | 2,3 с | 0,12 | 443 МБ |
+
+На телефоне цифры другие; перед релизом бенчмарк стоит снять на целевом устройстве. Планировать ~500 МБ PSS и 5–10 с на первую загрузку моделей.
+
+## Интеграция в приложение
+
+Короткая версия:
+
+1. `implementation(project(":speech"))` + `noCompress += listOf("onnx", "txt")`.
+2. Веса в `speech/src/main/assets/`, прогнать `:speech:verifyBundledModels`.
+3. В `AppContainer`: `SherpaTranscriber(appContext)` вместо `FakeTranscriber`.
+4. `load()` один раз на пачку, `release()` в конце, события в БД.
+5. Пройти [чек-лист](#чек-лист) на arm64-устройстве.
+
+### Подключение
+
+В корневом `settings.gradle.kts` уже есть:
+
+```kotlin
+include(":speech")
+
+dependencyResolutionManagement {
+    repositories {
+        maven { url = uri("speech/local-repo") } // sherpa-onnx 1.13.0
+    }
+}
+```
+
+В `app/build.gradle.kts`:
+
+```kotlin
+android {
+    androidResources {
+        // Обязательно: sherpa-onnx читает .onnx из assets нативно,
+        // сжатые assets он открыть не может.
+        noCompress += listOf("onnx", "txt")
+    }
+}
+
+dependencies {
+    implementation(project(":speech"))
+    // Публичный API возвращает Flow; корутины должны быть в compile classpath.
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+}
+```
+
+Если приложение живёт в другом репозитории, `speech/` переносится целиком вместе с `speech/local-repo/`. Собранного AAR недостаточно: `sherpa-onnx` — `implementation`-зависимость, плюс нужны assets.
+
+Требования: `minSdk >= 29`, JDK 17, Android SDK 37. Сборка приложения — `arm64-v8a` (debug и release). `:speech` сам не задаёт `abiFilters`, поэтому его инструментальные тесты и бенчмарк идут на x86_64-эмуляторе. Но `:app` режет ABI через `abiFilters += "arm64-v8a"` — на x86_64-эмуляторе такое приложение не запустится, нужен arm64-эмулятор или arm64-устройство.
+
+В текущем `:app` R8-оптимизация выключена (`optimization { enable = false }`). Если включить minify, нужно добавить keep-правила для `com.k2fsa.sherpa.onnx.**` и прогнать расшифровку на устройстве — иначе можно получить `UnsatisfiedLinkError` или пустой результат.
+
+### Точка замены
+
+Сейчас в `AppContainer` стоит `FakeTranscriber`. Замена — одна строка:
+
+```diff
+- private val transcriber: Transcriber = FakeTranscriber()
++ private val transcriber: Transcriber = SherpaTranscriber(appContext)
+```
+
+```kotlin
+import com.example.speech.impl.SherpaTranscriber
+
+class AppContainer(context: Context) {
+    private val appContext = context.applicationContext
+    private val transcriber: Transcriber = SherpaTranscriber(appContext)
+
+    val processingController = DefaultProcessingController(
+        // ...
+        transcriber = transcriber,
+        speechConfig = SpeechConfig(numThreads = 4),
+    )
+}
+```
+
+`SpeechConfig` можно не передавать: все поля имеют значения по умолчанию. `FakeTranscriber` стоит оставить для UI-тестов — интерфейс `Transcriber` уже позволяет подменять реализацию. Юнит-тесты приложения не должны создавать `SherpaTranscriber`: ему нужен Android `Context` и native-библиотеки, проверять его лучше instrumented-тестами на устройстве или эмуляторе.
+
+Всегда передавать `applicationContext` (как в `AppContainer`), а не Activity: транскрибер живёт дольше экрана и иначе удержит Activity в памяти.
+
+### Очередь и отмена
+
+`DefaultProcessingController` уже написан под этот контракт: `load()` на пачку, `SegmentReady` → `appendSegment`, `Done` → `replaceSegments`, `Failed` → `TRANSCRIPTION_FAILED`, `release()` в конце пачки и в `finally`, отмена через отмену коллектора. Менять его логику не нужно — только точку создания транскрибера.
+
+Проверить три места:
+
+1. **`AppContainer`** — `SherpaTranscriber(appContext)` вместо `FakeTranscriber`.
+2. **Пакеты.** Не импортировать `com.example.speech.audio.*`, `com.example.speech.data.BundledModels`, `com.example.speech.impl.SherpaModelFactory` — они `internal` или детали реализации.
+3. **Обёртки.** Если транскрибер оборачивается (декоратор, логирование), нужно переопределить **оба** `transcribe`: перегрузка с `expectedSpeakers` по умолчанию делегирует в `transcribe(wav)` и потеряет число говорящих.
+
+Для очереди `load()` вызывается **один раз на пачку** заданий, `release()` — когда очередь опустела и в `finally` работника. Не загружать модели на каждое задание: холодная загрузка — это 5–10 с и лишняя нагрузка на память.
+
+```kotlin
+val job = scope.launch {
+    transcriber.transcribe(wav).collect { event -> /* ... */ }
+}
+
+// Пользователь нажал «Отменить»:
+job.cancelAndJoin()          // отменит коллектор; Flow завершится CancellationException
+// release() — только после этого, в finally работника
+```
+
+- `CancellationException` не оборачивать в `Failed`/`TRANSCRIPTION_FAILED` — пробрасывать.
+- `job.cancelAndJoin()` может ждать завершения текущего native-шага (см. раздел про отмену).
+- После отмены освободить WAV, если он был создан этим заданием, и очистить частичные сегменты — это уже делает контроллер.
+
+### Ошибки
+
+| Где | Сигнал | Что делать в приложении |
+|---|---|---|
+| `load()` | исключение | `TRANSCRIPTION_FAILED`; в лог — stack trace и текст |
+| `transcribe()` | `Failed(cause)` | `TRANSCRIPTION_FAILED`, частичные сегменты сохранить |
+| `transcribe()` | `CancellationException` | пробросить, статус `CANCELLED` |
+| Поток завершился без `Done` | нет события | считать ошибкой |
+| Неверный WAV | `Failed(IllegalArgumentException)` | ошибка конвертации, не показывать как «ML сломался» |
+| Нет моделей | `load()` → `IllegalStateException` | ошибка сборки/упаковки, не retry-loop |
+
+Не пытаться автоматически повторять `load()`/`transcribe()` при `IllegalStateException`: без исправления APK это не поможет.
+
+### Память и процесс
+
+- **Память.** Планировать ~450–500 МБ PSS на один загруженный экземпляр. Пик batch — плюс WAV в `FloatArray` (~230 МБ на 60 минут). Не держать два экземпляра и не загружать модели «на всякий случай»: `release()` при простое.
+- **`largeHeap` не обязателен** и не помогает native-памяти; поможет только один экземпляр, короткие файлы и `release()`.
+- **Потоки.** `numThreads = 4` — разумный дефолт. Больше потоков не уменьшают память и могут ухудшить отзывчивость; VAD всегда на 1 потоке.
+- **Главный поток.** `load()` main-safe, события можно собирать в scope приложения. Но не запускать несколько расшифровок и не делать `release()` во время работы.
+- **Процесс.** На время задания нужен foreground-сервис и `PARTIAL_WAKE_LOCK` — это делает приложение, не `:speech`. Иначе система убьёт процесс или усыпит CPU на длинной записи.
+- **Смерть процесса.** Незавершённые сессии приложение помечает `INTERRUPTED` и даёт retry — это уже реализовано в контроллере. `:speech` ничего не персистит.
+
+### Диагностика
+
+| Симптом | Причина | Решение |
+|---|---|---|
+| `UnsatisfiedLinkError` / `dlopen` | Не та ABI или сборка без native-libs | `arm64-v8a` на устройстве; не вырезать `jni/`; проверить `abiFilters` |
+| `IllegalStateException: В APK отсутствуют модели` | Не распакованы assets | Скачать zip в `speech/src/main/assets`, `:speech:verifyBundledModels` |
+| `FileNotFoundException` на `assets/models/...` | Assets сжаты | `noCompress += listOf("onnx", "txt")` в `:app` |
+| `WAV должен быть...` / `Это не WAV` | Неканонический вход | Прогнать через `AudioConverter.toWav()` |
+| `Аудио длиннее 60 минут` | Лимит batch | Разбить файл или использовать streaming |
+| `Модели не загружены` | Нет `load()` | Вызвать `load()` до `transcribe()` |
+| Пустой текст, мало сегментов | Тишина, не русская речь, слишком короткие фразы | Проверить аудио; `minSpeechMs` только для streaming |
+| Слишком много/мало говорящих | Порог кластеризации | `expectedSpeakers` (batch), `autoClusterThreshold` (batch-авто), `onlineClusterThreshold` (streaming) |
+| OOM / падение native | Длинный файл + несколько экземпляров | Один экземпляр, `release()`, короче файл |
+| Долгая отмена | Идёт native-диаризация | Ждать завершения шага; UI «Останавливаем…» |
+
+Логи: `:speech` почти не пишет в logcat. Для разбора присылать stack trace, модель устройства, длительность и формат аудио, `numThreads` и вывод бенчмарка.
+
+### Чек-лист
+
+Сборка и упаковка:
+
+- [ ] `settings.gradle.kts` содержит `:speech` и `speech/local-repo`.
+- [ ] `implementation(project(":speech"))` в `:app`.
+- [ ] `noCompress += listOf("onnx", "txt")` в `:app`.
+- [ ] `:speech:verifyBundledModels` — `OK (5 файлов)`.
+- [ ] `:app:assembleDebug` собирается, APK устанавливается на arm64-устройство.
+- [ ] `AppContainer` создаёт `SherpaTranscriber`, `FakeTranscriber` остался для тестов.
+
+Поведение:
+
+- [ ] Импорт WAV с двумя говорящими → 2 спикера, осмысленный текст, таймкоды по возрастанию.
+- [ ] Два задания в очереди → `load()` вызван один раз, `release()` — после опустошения очереди.
+- [ ] Отмена во время распознавания → `CANCELLED`, частичные сегменты очищены, следующий job работает.
+- [ ] `Failed` → `FAILED`/`TRANSCRIPTION_FAILED`, частичные сегменты сохранены.
+- [ ] Файл > 60 минут → понятная ошибка, без падения.
+- [ ] Экран выключен 2 минуты во время задания → обработка доходит до `DONE`.
+- [ ] Убийство процесса в середине задания → после перезапуска `INTERRUPTED`, retry работает.
+- [ ] После `release()` повторный `load()` + расшифровка работают (нет «залипшей» native-памяти).
+- [ ] Память: один экземпляр, PSS в пределах ожидаемого, нет роста между заданиями.
+
+Если пункт не проходит — это либо упаковка (assets/ABI), либо контракт (порядок `load`/`release`), либо качество аудио. Сначала стоит проверить таблицу диагностики.
+
+Если API не хватает — лучше обсудить изменение контракта, чем патчить модуль по месту.
