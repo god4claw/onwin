@@ -13,11 +13,12 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.onwin.MainActivity
-import com.example.onwin.OnWinApp
+import com.example.onwin.ProcessingTestEntryPoint
 import com.example.onwin.R
 import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
+import dagger.hilt.android.EntryPointAccessors
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.junit.Rule
@@ -31,8 +32,9 @@ class RecordingNavigationTest {
 
     @Test
     fun notificationEntry_opensSavedRecordingAndReturnsToList() {
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as OnWinApp
-        val repository = app.container.sessionRepository
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        val repository = EntryPointAccessors.fromApplication(app, ProcessingTestEntryPoint::class.java)
+            .sessionRepository()
         val id = UUID.randomUUID().toString()
         val title = "Navigation test $id"
         val now = System.currentTimeMillis()

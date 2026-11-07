@@ -378,7 +378,7 @@ speech/src/main/java/com/example/speech/
 
 1. `implementation(project(":speech"))` + `noCompress += listOf("onnx", "txt")`.
 2. Веса в `speech/src/main/assets/`, прогнать `:speech:verifyBundledModels`.
-3. `AppContainer` передаёт `SherpaVadTranscriber(appContext)` в очередь приложения.
+3. Hilt передаёт один экземпляр `SherpaVadTranscriber` в очередь приложения.
 4. `load()` один раз на пачку, `release()` в конце, события в БД.
 5. Пройти [чек-лист](#чек-лист) на arm64-устройстве.
 
@@ -420,32 +420,17 @@ dependencies {
 
 В release-сборке `:app` включена оптимизация R8. Модуль `:speech` передаёт правила сохранения JNI-классов из `consumer-rules.pro`.
 
-### Точка замены
+### Подключение движка через Hilt
 
 `SherpaVadTranscriber` реализует `Transcriber` для готовых WAV и `StreamingTranscriber` для живого PCM. Обе точки входа используют один набор загруженных моделей. Приложение читает PCM из растущего WAV для живого режима, а в отложенном режиме и при импорте передаёт готовый WAV. `Utterance` и `SegmentReady` отдают реплики с предварительными номерами спикеров. В `Done` приходит итоговый список, который контроллер сохраняет через `replaceSegments`.
 
-```kotlin
-import com.example.speech.impl.SherpaVadTranscriber
-
-class AppContainer(context: Context) {
-    private val appContext = context.applicationContext
-    private val transcriber: Transcriber = SherpaVadTranscriber(appContext)
-
-    val processingController = DefaultProcessingController(
-        // ...
-        transcriber = transcriber,
-        speechConfig = SpeechConfig(numThreads = 4),
-    )
-}
-```
-
 Веса читаются из assets APK. `FakeTranscriber` доступен в тестовых наборах `:app`. Нативный движок проверяется инструментальными тестами на устройстве или совместимом эмуляторе.
 
-Всегда передавать `applicationContext` (как в `AppContainer`), а не Activity: транскрибер живёт дольше экрана и иначе удержит Activity в памяти.
+Модуль Hilt создаёт `SherpaVadTranscriber` с `@ApplicationContext` и областью `@Singleton`.
 
 ### Очередь и отмена
 
-`DefaultProcessingController` записывает `SegmentReady` через `appendSegment`, `Done` через `replaceSegments` и переводит `Failed` в `TRANSCRIPTION_FAILED`. Hilt предоставляет экранам и сервису общий контроллер из `AppContainer`.
+`DefaultProcessingController` записывает `SegmentReady` через `appendSegment`, `Done` через `replaceSegments` и переводит `Failed` в `TRANSCRIPTION_FAILED`. Hilt предоставляет экранам и сервису общий контроллер, который создаётся при инъекции в `Application`.
 
 Для очереди `load()` вызывается **один раз на пачку** заданий, `release()` — когда очередь опустела и в `finally` работника. Не загружать модели на каждое задание: холодная загрузка — это 5–10 с и лишняя нагрузка на память.
 
@@ -511,7 +496,7 @@ job.cancelAndJoin()          // отменит коллектор; Flow заве
 - [ ] `noCompress += listOf("onnx", "txt")` в `:app`.
 - [ ] `:speech:verifyBundledModels` — `OK (6 файлов)`.
 - [ ] `:app:assembleDebug` собирается, APK устанавливается на arm64-устройство.
-- [x] `AppContainer` создаёт `SherpaVadTranscriber`, `FakeTranscriber` доступен в тестовых наборах.
+- [x] Hilt предоставляет один `SherpaVadTranscriber`, `FakeTranscriber` доступен в тестовых наборах.
 
 Поведение:
 
