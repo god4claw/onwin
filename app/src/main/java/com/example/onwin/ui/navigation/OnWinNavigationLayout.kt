@@ -108,7 +108,9 @@ internal fun OnWinScreenLayout(
     if (slot != null) {
         val viewport = checkNotNull(LocalNavigationViewport.current)
         slot.Publish(loading, dimmed, panel?.invoke(viewport))
-        Box(modifier.fillMaxSize().then(backdrop).onWinAtmosphere(viewport)) { content(viewport) }
+        // Корневой OnWinNavigationLayout уже рисует атмосферу на весь экран,
+        // повторная заливка здесь — лишний полноэкранный overdraw.
+        Box(modifier.fillMaxSize().then(backdrop)) { content(viewport) }
     } else {
         BoxWithConstraints(modifier.fillMaxSize().then(backdrop).onWinAtmosphere()) {
             val viewport = DpSize(maxWidth, maxHeight)
