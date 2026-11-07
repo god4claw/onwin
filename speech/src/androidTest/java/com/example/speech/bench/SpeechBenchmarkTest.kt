@@ -496,6 +496,7 @@ class SpeechBenchmarkTest {
                         endMs = segment.endMs,
                         speaker = segment.speaker,
                         latencyMs = atMs - fedAtMs(segment.endMs),
+                        text = segment.text,
                     )
                 }
 

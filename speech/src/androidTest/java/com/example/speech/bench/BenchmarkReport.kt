@@ -174,6 +174,8 @@ internal data class StreamingEventRecord(
     val endMs: Long?,
     val speaker: Int?,
     val latencyMs: Long,
+    /** Текст предварительной реплики — как его увидит живой UI. */
+    val text: String? = null,
 )
 
 /** Реплика с онлайн-меткой и embedding — только при `dump_embeddings on`. */
@@ -462,6 +464,7 @@ private fun StreamingRun.toJson(): JSONObject = JSONObject().apply {
                         event.endMs?.let { put("endMs", it) }
                         event.speaker?.let { put("speaker", it) }
                         put("latencyMs", event.latencyMs)
+                        event.text?.let { put("text", it) }
                     },
                 )
             }
