@@ -1,10 +1,8 @@
 package com.example.onwin.domain.processing
 
-import com.example.onwin.domain.processing.MicrophoneRecorder
-import com.example.onwin.domain.processing.RecordingException
 import com.example.onwin.data.audio.WavWriter
-import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.ErrorCode
+import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
 import com.example.speech.api.Segment
@@ -19,7 +17,10 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -259,7 +260,7 @@ class MicrophoneControllerTest {
         val wav = repository.wavFile(repository.session(id).wavFileName!!)
         assertTrue(wav.isFile)
         assertTrue(repository.session(id).canRetry)
-        transcriber.script = { emit(com.example.speech.api.TranscriptionEvent.Done(emptyList())) }
+        transcriber.script = { emit(TranscriptionEvent.Done(emptyList())) }
         controller.retry(id)
         advanceUntilIdle()
         assertEquals(SessionStatus.DONE, repository.session(id).status)
@@ -375,7 +376,7 @@ class MicrophoneControllerTest {
     @Test fun retryDuringCaptureWaitsAndUsesSavedOriginal() = runTest {
         val controller = controller()
         foreground.promoted.complete(Unit)
-        transcriber.script = { emit(com.example.speech.api.TranscriptionEvent.Failed(IllegalStateException("test"))) }
+        transcriber.script = { emit(TranscriptionEvent.Failed(IllegalStateException("test"))) }
         val first = controller.startRecording()!!
         advanceUntilIdle()
         controller.stopRecording(first)
@@ -388,7 +389,7 @@ class MicrophoneControllerTest {
         advanceUntilIdle()
         assertEquals(SessionStatus.QUEUED, repository.session(first).status)
         assertEquals(1, controller.state.value.queuedCount)
-        transcriber.script = { emit(com.example.speech.api.TranscriptionEvent.Done(emptyList())) }
+        transcriber.script = { emit(TranscriptionEvent.Done(emptyList())) }
         controller.stopRecording(second)
         advanceUntilIdle()
         assertEquals(SessionStatus.DONE, repository.session(first).status)

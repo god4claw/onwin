@@ -152,7 +152,7 @@ class RecordingImportTest {
             return ImportSubmission(created.await(), openDetails)
         }
 
-        override fun startRecording(liveTranscription: Boolean): String? = error("Unexpected microphone action")
+        override fun startRecording(liveTranscription: Boolean): String = error("Unexpected microphone action")
         override fun stopRecording(sessionId: String) = Unit
         override fun enqueueImport(source: String): String = error("Unexpected queued import")
         override fun cancel(sessionId: String) = Unit

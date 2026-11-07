@@ -113,7 +113,7 @@ class RecordingCancellationTest {
         override val state = MutableStateFlow(ProcessingState(recording = recording, busy = true))
         val cancelled = mutableListOf<String>()
         override fun cancel(sessionId: String) { cancelled += sessionId }
-        override fun startRecording(liveTranscription: Boolean): String? = error("Unexpected recording")
+        override fun startRecording(liveTranscription: Boolean): String = error("Unexpected recording")
         override fun stopRecording(sessionId: String) = Unit
         override fun enqueueImport(source: String): String = error("Unexpected import")
         override suspend fun importAudio(source: String): ImportSubmission = error("Unexpected import")

@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
+import kotlin.time.Duration.Companion.milliseconds
 
 /** Nonblocking PCM16 input. All methods are called on the capture coroutine, including close. */
 internal interface PcmCapture : Closeable {
@@ -61,7 +62,7 @@ internal class WavMicrophoneRecorder(
                         val count = input.read(samples)
                         if (count < 0) throw RecordingException(ErrorCode.MICROPHONE_UNAVAILABLE)
                         if (count == 0) {
-                            delay(10)
+                            delay(10.milliseconds)
                             continue
                         }
                         if (resampler == null) writer.writeShorts(samples, length = count) else {

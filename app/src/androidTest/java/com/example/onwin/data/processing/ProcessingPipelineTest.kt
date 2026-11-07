@@ -28,6 +28,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Весь конвейер на устройстве: настоящий конвертер и Room, [FakeTranscriber].
@@ -75,14 +76,14 @@ class ProcessingPipelineTest {
     @Test
     fun microphone_stopPersistsCanonicalWavAndTranscribesWithoutConversion(): Unit = runBlocking {
         val id = controller.startRecording()!!
-        withTimeout(10_000) { controller.state.first { it.recording?.phase == RecordingPhase.RECORDING } }
+        withTimeout(10_000.milliseconds) { controller.state.first { it.recording?.phase == RecordingPhase.RECORDING } }
         val notification = ProcessingNotifications(context).build(controller.state.value)
         assertEquals(listOf(context.getString(com.example.onwin.R.string.action_stop),
             context.getString(com.example.onwin.R.string.action_cancel)), notification.actions.map { it.title.toString() })
         assertTrue(notification.actions.all { it.actionIntent != null })
         assertTrue(notification.contentIntent != null)
         controller.stopRecording(id)
-        val detail = withTimeout(10_000) {
+        val detail = withTimeout(10_000.milliseconds) {
             repository.observeSession(id).first { it?.session?.status in FINAL_STATUSES }
         }!!
         assertEquals(SessionStatus.DONE, detail.session.status)
@@ -93,16 +94,16 @@ class ProcessingPipelineTest {
         assertEquals(32_044L, wav.length())
         assertFalse(repository.wavFile("$id.wav.part").exists())
         assertTrue(detail.segments.isNotEmpty())
-        withTimeout(10_000) { controller.state.first { !it.busy } }
+        withTimeout(10_000.milliseconds) { controller.state.first { !it.busy } }
     }
 
     @Test
     fun import_reachesDoneWithSegmentsAndWav_thenDeleteRemovesRowsAndFile() = runBlocking {
         val source = TestAudioProvider.uri("file", "mp3_44k_stereo.mp3").toString()
-        val id = withTimeout(10_000) { checkNotNull(controller.importAudio(source)).sessionId }
+        val id = withTimeout(10_000.milliseconds) { checkNotNull(controller.importAudio(source)).sessionId }
         assertEquals(source, repository.get(id)?.sourceUri)
 
-        val finished = withTimeout(30_000) {
+        val finished = withTimeout(30_000.milliseconds) {
             repository.observeSession(id).first { it?.session?.status in FINAL_STATUSES }
         }!!
         val session = finished.session
@@ -116,7 +117,7 @@ class ProcessingPipelineTest {
         assertTrue(wav.isFile)
 
         controller.delete(id)
-        withTimeout(10_000) { repository.observeSession(id).first { it == null } }
+        withTimeout(10_000.milliseconds) { repository.observeSession(id).first { it == null } }
         assertFalse(wav.exists())
         assertTrue(recordings.listFiles().orEmpty().isEmpty())
     }

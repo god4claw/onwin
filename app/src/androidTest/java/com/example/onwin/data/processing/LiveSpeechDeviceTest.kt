@@ -29,6 +29,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.time.Duration.Companion.milliseconds
 
 @RunWith(AndroidJUnit4::class)
 class LiveSpeechDeviceTest {
@@ -87,12 +88,12 @@ class LiveSpeechDeviceTest {
             )
             val id = checkNotNull(controller.startRecording())
             try {
-                val draft = withTimeout(120_000) {
+                val draft = withTimeout(120_000.milliseconds) {
                     checkNotNull(repository.observeSession(id).first { it?.segments?.isNotEmpty() == true })
                 }
                 assertEquals(SessionStatus.RECORDING, draft.session.status)
                 controller.stopRecording(id)
-                val finished = withTimeout(120_000) {
+                val finished = withTimeout(120_000.milliseconds) {
                     checkNotNull(repository.observeSession(id).first { it != null && !it.session.status.isActive })
                 }
                 assertEquals(finished.session.errorMessage, SessionStatus.DONE, finished.session.status)
@@ -100,7 +101,7 @@ class LiveSpeechDeviceTest {
                 assertTrue(finished.segments.isNotEmpty())
             } finally {
                 controller.cancel(id)
-                withTimeout(30_000) { controller.state.first { !it.busy } }
+                withTimeout(30_000.milliseconds) { controller.state.first { !it.busy } }
             }
         } finally {
             db.close()

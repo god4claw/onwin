@@ -39,7 +39,7 @@ class MicrophoneRecorderTest {
             val stop = CompletableDeferred<Unit>()
             val input = Input(rate, stop)
             val attempted = mutableListOf<Int>()
-            val recorder = WavMicrophoneRecorder(PcmCaptureFactory {
+            val recorder = WavMicrophoneRecorder({
                 attempted += it
                 if (it == rate) input else null
             }, StandardTestDispatcher(testScheduler))
@@ -65,7 +65,7 @@ class MicrophoneRecorderTest {
         val stop = CompletableDeferred<Unit>()
         val input = Input(16_000, stop).apply { readResult = 0 }
         val file = tmp.newFile()
-        val recorder = WavMicrophoneRecorder(PcmCaptureFactory { input }, StandardTestDispatcher(testScheduler))
+        val recorder = WavMicrophoneRecorder({ input }, StandardTestDispatcher(testScheduler))
         try {
             recorder.record(file, stop, {}, {}, live = false)
             fail("Expected empty recording")
@@ -79,7 +79,7 @@ class MicrophoneRecorderTest {
             val stop = CompletableDeferred<Unit>()
             val input = Input(16_000, stop).apply { readResult = -6; this.silenced = silenced }
             val file = tmp.newFile()
-            val recorder = WavMicrophoneRecorder(PcmCaptureFactory { input }, StandardTestDispatcher(testScheduler))
+            val recorder = WavMicrophoneRecorder({ input }, StandardTestDispatcher(testScheduler))
             try {
                 recorder.record(file, stop, {}, {}, live = false)
                 fail("Expected capture error")
@@ -91,7 +91,7 @@ class MicrophoneRecorderTest {
 
     @Test fun permissionRevocationIsReported() = runTest {
         val file = tmp.newFile()
-        val recorder = WavMicrophoneRecorder(PcmCaptureFactory { throw SecurityException() }, StandardTestDispatcher(testScheduler))
+        val recorder = WavMicrophoneRecorder({ throw SecurityException() }, StandardTestDispatcher(testScheduler))
         try {
             recorder.record(file, CompletableDeferred(), {}, {}, live = false)
             fail("Expected denied permission")
@@ -109,7 +109,7 @@ class MicrophoneRecorderTest {
             override fun close() { closed = true }
         }
         val file = tmp.newFile()
-        val recorder = WavMicrophoneRecorder(PcmCaptureFactory { input }, StandardTestDispatcher(testScheduler))
+        val recorder = WavMicrophoneRecorder({ input }, StandardTestDispatcher(testScheduler))
         val job = async { recorder.record(file, CompletableDeferred(), {}, {}, live = false) }
         runCurrent()
         job.cancelAndJoin()
