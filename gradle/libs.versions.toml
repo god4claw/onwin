@@ -1,4 +1,5 @@
 [versions]
+balloon = "2.0.1"
 agp = "9.4.1"
 coreKtx = "1.19.1"
 junit = "4.13.2"
@@ -24,6 +25,7 @@ profileinstaller = "1.4.1"
 coroutines = "1.9.0"
 
 [libraries]
+balloon = { group = "com.github.skydoves", name = "balloon", version.ref = "balloon" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

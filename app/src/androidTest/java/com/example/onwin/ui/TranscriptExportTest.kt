@@ -73,6 +73,7 @@ class TranscriptExportTest {
             repository,
             IdleController,
             TranscriptExporter(context),
+            completedTranscriptOnboarding,
         )
         val picker = TestPicker(context)
         val resolver = context.contentResolver

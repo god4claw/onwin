@@ -82,6 +82,13 @@ androidComponents.beforeVariants(androidComponents.selector().withBuildType("rel
     it.hostTests.getValue(HostTestBuilder.UNIT_TEST_TYPE).enable = true
 }
 
+androidComponents.onVariants { variant ->
+    val mergeAssetsTask = "merge${variant.name.replaceFirstChar(Char::uppercaseChar)}Assets"
+    tasks.matching { it.name == mergeAssetsTask }.configureEach {
+        dependsOn(":speech:verifyBundledModels")
+    }
+}
+
 ksp {
     // Схема Room хранится в репозитории: по ней пишутся и проверяются миграции.
     arg("room.schemaLocation", "$projectDir/schemas")
@@ -92,6 +99,7 @@ dependencies {
     baselineProfile(project(":baselineprofile"))
     implementation(libs.androidx.profileinstaller)
     implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.balloon)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui)

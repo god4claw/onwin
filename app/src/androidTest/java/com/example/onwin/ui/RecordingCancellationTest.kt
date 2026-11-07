@@ -83,6 +83,7 @@ class RecordingCancellationTest {
                 repository,
                 controller,
                 TranscriptExporter(context),
+                completedTranscriptOnboarding,
             )
             try {
                 compose.setContent { ActiveRecordingRoute(onBack = {}, viewModel = viewModel) }

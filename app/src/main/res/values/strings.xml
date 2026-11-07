@@ -47,8 +47,8 @@
 
     <!-- Статусы -->
     <string name="status_queued">В очереди</string>
-    <string name="status_converting">Конвертация</string>
-    <string name="status_transcribing">Распознавание</string>
+    <string name="status_converting">Конвертация…</string>
+    <string name="status_transcribing">Распознавание…</string>
     <string name="status_done">Готово</string>
     <string name="status_failed">Ошибка</string>
     <string name="status_cancelled">Отменено</string>
@@ -67,6 +67,12 @@
     <string name="detail_not_found">Запись удалена.</string>
     <string name="speaker_default">Спикер %1$d</string>
     <string name="speaker_rename_title">Переименовать спикера</string>
+    <string name="transcript_onboarding_step">%1$d из 2</string>
+    <string name="transcript_onboarding_text">Нажмите на текст, чтобы перейти к этому моменту в записи</string>
+    <string name="transcript_onboarding_speaker">Нажмите на имя, чтобы переименовать спикера</string>
+    <string name="transcript_onboarding_seek">Перейти к этому моменту в записи</string>
+    <string name="transcript_onboarding_next">Далее</string>
+    <string name="transcript_onboarding_done">Готово</string>
     <string name="speaker_rename_label">Имя спикера</string>
     <string name="speaker_rename_failed">Не удалось изменить имя спикера.</string>
 

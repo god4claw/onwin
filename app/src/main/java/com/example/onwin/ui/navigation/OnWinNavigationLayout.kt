@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.example.onwin.ui.components.onWinDialogBackdrop
@@ -47,6 +48,7 @@ internal data class NavigationPanel(
     val dimmed: Boolean,
     val content: NavigationPanelContent?,
     val anchoredContent: (@Composable () -> Unit)?,
+    val overlay: (@Composable () -> Unit)?,
 )
 
 internal class NavigationPanelSlot(private val panels: NavigationPanels, private val entryId: String) {
@@ -56,8 +58,11 @@ internal class NavigationPanelSlot(private val panels: NavigationPanels, private
         dimmed: Boolean,
         content: NavigationPanelContent?,
         anchoredContent: (@Composable () -> Unit)? = null,
+        overlay: (@Composable () -> Unit)? = null,
     ) {
-        val latest = key(panels, entryId) { rememberUpdatedState(NavigationPanel(loading, dimmed, content, anchoredContent)) }
+        val latest = key(panels, entryId) {
+            rememberUpdatedState(NavigationPanel(loading, dimmed, content, anchoredContent, overlay))
+        }
         SideEffect {
             panels.entries[entryId] = latest
         }
@@ -78,8 +83,8 @@ internal fun OnWinNavigationLayout(
     BoxWithConstraints(Modifier.fillMaxSize().onWinAtmosphere()) {
         val viewport = DpSize(maxWidth, maxHeight)
         CompositionLocalProvider(LocalNavigationViewport provides viewport) {
-            Column(Modifier.fillMaxSize()) {
-                val panel = activeEntryId?.let(panels.entries::get)?.value
+            val panel = activeEntryId?.let(panels.entries::get)?.value
+            Column(Modifier.fillMaxSize().behindOverlay(panel?.overlay != null)) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     content(Modifier.fillMaxSize())
                     Box(Modifier.align(Alignment.BottomEnd)) {
@@ -101,6 +106,7 @@ internal fun OnWinNavigationLayout(
                     )
                 }
             }
+            panel?.overlay?.invoke()
         }
     }
 }
@@ -114,19 +120,20 @@ internal fun OnWinScreenLayout(
     dimmed: Boolean = false,
     panel: (@Composable (DpSize) -> NavigationPanelContent)?,
     anchoredContent: (@Composable () -> Unit)? = null,
+    overlay: (@Composable () -> Unit)? = null,
     content: @Composable (DpSize) -> Unit,
 ) {
     val backdrop = if (dimmed) Modifier.onWinDialogBackdrop() else Modifier
     if (slot != null) {
         val viewport = checkNotNull(LocalNavigationViewport.current)
-        slot.Publish(loading, dimmed, panel?.invoke(viewport), anchoredContent)
+        slot.Publish(loading, dimmed, panel?.invoke(viewport), anchoredContent, overlay)
         // Корневой OnWinNavigationLayout уже рисует атмосферу на весь экран,
         // повторная заливка здесь — лишний полноэкранный overdraw.
         Box(modifier.fillMaxSize().then(backdrop)) { content(viewport) }
     } else {
         BoxWithConstraints(modifier.fillMaxSize().then(backdrop).onWinAtmosphere()) {
             val viewport = DpSize(maxWidth, maxHeight)
-            Column(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().behindOverlay(overlay != null)) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     content(viewport)
                     Box(Modifier.align(Alignment.BottomEnd)) {
@@ -137,9 +144,13 @@ internal fun OnWinScreenLayout(
                     NavigationPanelContents(panel(viewport), owner = null, enabled = !loading)
                 }
             }
+            overlay?.invoke()
         }
     }
 }
+
+private fun Modifier.behindOverlay(covered: Boolean): Modifier =
+    if (covered) clearAndSetSemantics { } else this
 
 @Composable
 internal fun OnWinPanelSurface(modifier: Modifier = Modifier, content: @Composable () -> Unit) {

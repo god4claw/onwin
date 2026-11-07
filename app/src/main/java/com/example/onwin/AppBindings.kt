@@ -17,6 +17,7 @@ import com.example.onwin.domain.processing.MicrophoneRecorder
 import com.example.onwin.domain.processing.ProcessingController
 import com.example.onwin.domain.processing.WakeLockHolder
 import com.example.onwin.domain.repository.SessionRepository
+import com.example.onwin.domain.repository.TranscriptOnboardingRepository
 import com.example.onwin.domain.repository.WelcomeRepository
 import com.example.onwin.ui.notification.ServiceForegroundStarter
 import com.example.speech.api.SpeechConfig
@@ -96,6 +97,9 @@ object AppBindings {
 
     @Provides
     fun welcomeRepository(preferences: WelcomePreferences): WelcomeRepository = preferences
+
+    @Provides
+    fun transcriptOnboardingRepository(preferences: WelcomePreferences): TranscriptOnboardingRepository = preferences
 
     private fun recordingsDir(context: Context): File = File(context.filesDir, "recordings")
 }

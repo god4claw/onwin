@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +63,7 @@ import com.example.onwin.domain.model.SpeakerName
 import com.example.onwin.domain.model.SessionDetail
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
+import com.example.onwin.domain.repository.TranscriptOnboardingStep
 import com.example.onwin.ui.components.GlassButton
 import com.example.onwin.ui.components.recordingPanelPrimary
 import com.example.onwin.ui.navigation.NavigationPanelContent
@@ -108,8 +110,35 @@ internal fun ActiveRecordingScreen(
     onExport: (() -> Unit)? = null,
     panelSlot: NavigationPanelSlot? = null,
     panelDimmed: Boolean = false,
+    onboardingStep: TranscriptOnboardingStep? = null,
+    onAdvanceOnboarding: (TranscriptOnboardingStep) -> Boolean = { false },
 ) {
     val status = detail?.session?.status
+    val lastSegment = detail?.segments?.lastOrNull()
+    val step = onboardingStep?.takeIf {
+        it != TranscriptOnboardingStep.COMPLETE && loaded && !panelDimmed &&
+            status == SessionStatus.DONE && playback.ready && lastSegment != null
+    }
+    val target = remember(detail?.session?.id, lastSegment?.index, step) {
+        step?.let(::TranscriptOnboardingTarget)
+    }
+    val targetBounds = target?.bounds
+    val overlay: (@Composable () -> Unit)? =
+        if (step != null && lastSegment != null && targetBounds != null && !targetBounds.isEmpty) {
+            {
+                ActiveRecordingTheme {
+                    TranscriptOnboardingOverlay(step, targetBounds) { targetHit ->
+                        if (onAdvanceOnboarding(step) && targetHit) {
+                            when (step) {
+                                TranscriptOnboardingStep.TEXT -> onSeekPlayback(lastSegment.startMs)
+                                TranscriptOnboardingStep.SPEAKER -> onRenameSpeaker(lastSegment.speaker)
+                                TranscriptOnboardingStep.COMPLETE -> Unit
+                            }
+                        }
+                    }
+                }
+            }
+        } else null
     val panel: (@Composable (DpSize) -> NavigationPanelContent)? = when {
         status?.isActive == true -> { viewport ->
             recordingControlsPanel(viewport.isCompact, processing, canStop, canCancel, cancelling, onStop, onCancel)
@@ -131,7 +160,9 @@ internal fun ActiveRecordingScreen(
         else -> null
     }
 
-    OnWinScreenLayout(modifier, panelSlot, loading = !loaded, dimmed = panelDimmed, panel = panel) { viewport ->
+    OnWinScreenLayout(
+        modifier, panelSlot, loading = !loaded, dimmed = panelDimmed, panel = panel, overlay = overlay,
+    ) { viewport ->
         val compact = viewport.isCompact
         val topInset = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
         Column(Modifier.fillMaxSize()) {
@@ -168,6 +199,7 @@ internal fun ActiveRecordingScreen(
                             canSeek = playback.ready,
                             onRenameSpeaker = onRenameSpeaker,
                             onSeek = onSeekPlayback,
+                            onboardingTarget = target,
                         )
                         if (detail.session.status == SessionStatus.DONE && onExport != null) {
                             Spacer(Modifier.height(8.dp))
@@ -274,6 +306,7 @@ private fun RecordingTranscript(
     canSeek: Boolean,
     onSeek: (Long) -> Unit,
     onRenameSpeaker: (Int) -> Unit,
+    onboardingTarget: TranscriptOnboardingTarget?,
 ) {
     val segments = detail.segments
     val speakerNames = remember(detail.speakerNames) {
@@ -317,6 +350,14 @@ private fun RecordingTranscript(
         }
     }
 
+    LaunchedEffect(onboardingTarget) {
+        if (onboardingTarget != null) {
+            // Let an already visible anchor report its bounds before scrolling the last row into view.
+            withFrameNanos { }
+            if (onboardingTarget.bounds.isEmpty) listState.scrollToItem(segments.lastIndex)
+        }
+    }
+
     Column(
         modifier = modifier.fillMaxWidth()
             .heightIn(max = if (compact) 184.dp else 208.dp)
@@ -331,6 +372,7 @@ private fun RecordingTranscript(
             verticalArrangement = Arrangement.spacedBy(13.dp, Alignment.Bottom),
         ) {
             items(segments, key = { it.index }) { segment ->
+                val target = onboardingTarget?.takeIf { segment.index == segments.lastOrNull()?.index }
                 val speakerName = speakerNames[segment.speaker]
                     ?: stringResource(R.string.speaker_default, segment.speaker + 1)
                 Column {
@@ -341,6 +383,7 @@ private fun RecordingTranscript(
                         Text(
                             text = speakerName,
                             modifier = Modifier.weight(1f, fill = false)
+                                .then(target?.anchor(Modifier, TranscriptOnboardingStep.SPEAKER) ?: Modifier)
                                 .clip(CircleShape)
                                 .background(RecordingSpeakerBackground, CircleShape)
                                 .border(1.dp, RecordingSpeakerOutline, CircleShape)
@@ -365,6 +408,7 @@ private fun RecordingTranscript(
                     Text(
                         text = segment.text,
                         modifier = Modifier.padding(top = 6.dp)
+                            .then(target?.anchor(Modifier, TranscriptOnboardingStep.TEXT) ?: Modifier)
                             .clickable(enabled = canSeek) { onSeek(segment.startMs) },
                         color = RecordingTranscriptText,
                         style = MaterialTheme.typography.bodyMedium,

@@ -13,9 +13,12 @@ import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.ProcessingController
 import com.example.onwin.domain.processing.RecordingState
 import com.example.onwin.domain.repository.SessionRepository
+import com.example.onwin.domain.repository.TranscriptOnboardingRepository
+import com.example.onwin.domain.repository.TranscriptOnboardingStep
 import com.example.onwin.ui.navigation.ActiveRecordingDestination
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
+import java.io.IOException
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
@@ -36,6 +39,7 @@ import kotlinx.coroutines.launch
  * @param repository источник сессии и сегментов.
  * @param controller очередь обработки.
  * @param transcriptExporter сохраняет итоговую расшифровку в выбранный документ.
+ * @param transcriptOnboarding хранит пройденные шаги подсказок для расшифровки.
  */
 @HiltViewModel
 class RecordingViewModel @Inject constructor(
@@ -43,6 +47,7 @@ class RecordingViewModel @Inject constructor(
     private val repository: SessionRepository,
     private val controller: ProcessingController,
     private val transcriptExporter: TranscriptExporter,
+    private val transcriptOnboarding: TranscriptOnboardingRepository,
 ) : ViewModel() {
     val sessionId: String = savedStateHandle.toRoute<ActiveRecordingDestination>().sessionId
 
@@ -60,6 +65,38 @@ class RecordingViewModel @Inject constructor(
     internal val isExporting = exporting.asStateFlow()
     private val exportResult = Channel<Boolean>(Channel.BUFFERED)
     internal val exportResults = exportResult.receiveAsFlow()
+
+    private val onboardingStep = MutableStateFlow<TranscriptOnboardingStep?>(null)
+    internal val transcriptOnboardingStep = onboardingStep.asStateFlow()
+    private var submittedOnboardingStep: TranscriptOnboardingStep? = null
+    private var onboardingUnavailable = false
+
+    init {
+        viewModelScope.launch {
+            try {
+                transcriptOnboarding.progress.collect { step ->
+                    if (!onboardingUnavailable) onboardingStep.value = step
+                }
+            } catch (_: IOException) {
+                onboardingUnavailable = true
+                onboardingStep.value = null
+            }
+        }
+    }
+
+    internal fun advanceTranscriptOnboarding(step: TranscriptOnboardingStep): Boolean {
+        if (onboardingStep.value != step || submittedOnboardingStep == step) return false
+        submittedOnboardingStep = step
+        viewModelScope.launch {
+            try {
+                transcriptOnboarding.advance(step)
+            } catch (_: IOException) {
+                onboardingUnavailable = true
+                onboardingStep.value = null
+            }
+        }
+        return true
+    }
 
     internal fun exportTranscript(destination: Uri, format: TranscriptExportFormat) {
         if (!exporting.compareAndSet(expect = false, update = true)) return

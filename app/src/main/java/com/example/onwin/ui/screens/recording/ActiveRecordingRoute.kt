@@ -22,11 +22,13 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.onwin.R
 import com.example.onwin.data.export.TranscriptExportFormat
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.RecordingPhase
+import com.example.onwin.domain.repository.TranscriptOnboardingStep
 import com.example.onwin.ui.components.OnWinDialog
 import com.example.onwin.ui.components.OnWinDialogSecondaryText
 import com.example.onwin.ui.components.OnWinNameDialog
@@ -43,8 +45,10 @@ internal fun ActiveRecordingRoute(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val exporting by viewModel.isExporting.collectAsStateWithLifecycle()
+    val onboardingStep by viewModel.transcriptOnboardingStep.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val lifecycleState by lifecycle.currentStateAsState()
     val detail = state.detail
     val recording = state.recording
     val status = detail?.session?.status
@@ -93,6 +97,10 @@ internal fun ActiveRecordingRoute(
     val completedSession = detail?.session?.takeIf { it.status == SessionStatus.DONE }
     val wavFile = completedSession?.wavFileName?.let(viewModel::wavFile)
     val playback = rememberRecordingPlayback(wavFile)
+    val visibleOnboardingStep = onboardingStep?.takeIf {
+        lifecycleState == Lifecycle.State.RESUMED && it != TranscriptOnboardingStep.COMPLETE &&
+            speakerToEdit == null && !showExportFormats && pendingExportFormat == null && !showCancelConfirmation
+    }
 
     ActiveRecordingTheme {
         ActiveRecordingScreen(
@@ -121,6 +129,8 @@ internal fun ActiveRecordingRoute(
             },
             exportInProgress = pendingExportFormat != null || exporting,
             onExport = completedSession?.let { { showExportFormats = true } },
+            onboardingStep = visibleOnboardingStep,
+            onAdvanceOnboarding = viewModel::advanceTranscriptOnboarding,
         )
 
         if (showExportFormats && completedSession != null) {

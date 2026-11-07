@@ -2,10 +2,12 @@ package com.example.onwin.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -24,6 +26,10 @@ import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.model.SpeakerName
 import com.example.onwin.domain.model.TranscriptSegment
+import com.example.onwin.domain.repository.TranscriptOnboardingStep
+import com.example.onwin.domain.repository.TranscriptOnboardingStep.COMPLETE
+import com.example.onwin.domain.repository.TranscriptOnboardingStep.SPEAKER
+import com.example.onwin.domain.repository.TranscriptOnboardingStep.TEXT
 import com.example.onwin.ui.navigation.NavigationPanelSlot
 import com.example.onwin.ui.navigation.NavigationPanelTag
 import com.example.onwin.ui.navigation.NavigationPanels
@@ -254,6 +260,111 @@ class ActiveRecordingScreenTest {
         compose.onNodeWithContentDescription("Воспроизвести аудио").assertIsDisplayed()
         // Скроллится только лента реплик: у страницы своего скролла больше нет.
         assertEquals(1, compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun onboardingWaitsForPlaybackAndTargetsTheLastLongSegment() {
+        val step = mutableStateOf(TEXT)
+        val status = mutableStateOf(SessionStatus.TRANSCRIBING)
+        val playback = mutableStateOf(RecordingPlaybackState())
+        val seeks = mutableListOf<Long>()
+        val renamed = mutableListOf<Int>()
+        var toggles = 0
+        setOnboardingContent(step, status, playback, seeks::add, renamed::add, { toggles++ })
+        val overlay = compose.onNodeWithTag("transcript-onboarding-overlay")
+        val target = compose.onNodeWithTag("transcript-onboarding-target")
+
+        overlay.assertDoesNotExist()
+        compose.runOnIdle { status.value = SessionStatus.DONE }
+        overlay.assertDoesNotExist()
+        compose.runOnIdle { playback.value = RecordingPlaybackState(durationMs = 60_000) }
+        compose.onNodeWithText("1 из 2").assertIsDisplayed()
+
+        target.performTouchInput { click() }
+        compose.onNodeWithText("2 из 2").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(listOf(55_000L), seeks) }
+
+        target.performTouchInput { click() }
+        overlay.assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals(listOf(1), renamed)
+            assertEquals(0, toggles)
+            assertEquals(COMPLETE, step.value)
+        }
+    }
+
+    @Test
+    fun cardAdvancesAndOverlayConsumesTapOnPlaybackPanel() {
+        val step = mutableStateOf(TEXT)
+        var actions = 0
+        setOnboardingContent(step, onSeek = { actions++ }, onRename = { actions++ }, onToggle = { actions++ })
+
+        compose.onNodeWithText("1 из 2").performTouchInput { click() }
+        compose.onNodeWithText("2 из 2").assertIsDisplayed()
+        compose.onNodeWithTag(NavigationPanelTag, useUnmergedTree = true).performTouchInput { click() }
+        compose.onNodeWithTag("transcript-onboarding-overlay").assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals(0, actions)
+            assertEquals(COMPLETE, step.value)
+        }
+    }
+
+    @Test
+    fun onboardingStartsAtTheSavedSpeakerStep() {
+        val step = mutableStateOf(SPEAKER)
+        setOnboardingContent(step)
+
+        compose.onNodeWithText("1 из 2").assertDoesNotExist()
+        compose.onNodeWithText("2 из 2").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Переименовать спикера").performClick()
+        compose.onNodeWithTag("transcript-onboarding-overlay").assertDoesNotExist()
+    }
+
+    private fun setOnboardingContent(
+        step: MutableState<TranscriptOnboardingStep>,
+        status: MutableState<SessionStatus> = mutableStateOf(SessionStatus.DONE),
+        playback: MutableState<RecordingPlaybackState> = mutableStateOf(RecordingPlaybackState(durationMs = 60_000)),
+        onSeek: (Long) -> Unit = {},
+        onRename: (Int) -> Unit = {},
+        onToggle: () -> Unit = {},
+    ) {
+        val segments = transcriptSegments(11) + transcriptSegment(11).copy(text = "Длинная реплика. ".repeat(75))
+        val detail = transcriptDetail(segments)
+        compose.setContent {
+            val panels = remember { NavigationPanels() }
+            val slot = remember(panels) { NavigationPanelSlot(panels, detail.session.id) }
+            ActiveRecordingTheme {
+                Box(Modifier.height(640.dp)) {
+                    OnWinNavigationLayout(panels, detail.session.id) { viewport ->
+                        ActiveRecordingScreen(
+                            modifier = viewport,
+                            panelSlot = slot,
+                            detail = detail.copy(session = detail.session.copy(status = status.value)),
+                            loaded = true,
+                            elapsedMs = 60_000,
+                            processing = status.value.isActive,
+                            canStop = false,
+                            canCancel = false,
+                            cancelling = false,
+                            onBack = {},
+                            onStop = {},
+                            onCancel = {},
+                            onRenameSpeaker = onRename,
+                            playback = playback.value,
+                            onSeekPlayback = onSeek,
+                            onTogglePlayback = onToggle,
+                            onboardingStep = step.value,
+                            onAdvanceOnboarding = { from ->
+                                if (step.value != from) false else {
+                                    step.value = if (from == TEXT) SPEAKER else COMPLETE
+                                    true
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun transcriptSegments(count: Int) = (0 until count).map { transcriptSegment(it) }
