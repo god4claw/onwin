@@ -148,3 +148,118 @@ internal fun mergeSameSpeakerNeighbors(segments: List<Segment>, chunkOf: List<In
     }
     return merged
 }
+
+/**
+ * Склейка фразы, разорванной на границе VAD-кусков.
+ *
+ * Модель распознаёт каждый кусок отдельно и начинает его как новое предложение —
+ * с заглавной. Когда длинная речь режется посреди фразы (разрез в тишине на
+ * 25-секундной границе, короткая пауза), получается «…увидеть экран и» +
+ * «Оценить качество сборки.». Предыдущая часть при этом остаётся без точки.
+ *
+ * Соседние реплики склеиваются, если спикер тот же, пауза меньше [maxGapMs], а
+ * предыдущая не кончается на `.`, `!`, `?` или `…`. Первая буква продолжения
+ * становится строчной, если слово не имя: имя — то, что в этой записи стоит с
+ * заглавной посреди предложения и ни разу не встречается со строчной. Слова с
+ * латиницей или цифрами и аббревиатуры не меняются.
+ */
+internal fun joinSentenceContinuations(segments: List<Segment>, maxGapMs: Long = SENTENCE_GAP_MS): List<Segment> {
+    if (segments.size < 2) return segments
+    val names = properNouns(segments)
+    val joined = ArrayList<Segment>(segments.size)
+    for (segment in segments) {
+        val previous = joined.lastOrNull()
+        val text = segment.text.trim()
+        if (previous != null && text.isNotEmpty() && previous.speaker == segment.speaker &&
+            segment.startMs - previous.endMs < maxGapMs && !endsSentence(previous.text)
+        ) {
+            joined[joined.lastIndex] = previous.copy(
+                endMs = maxOf(previous.endMs, segment.endMs),
+                text = previous.text.trimEnd() + " " + decapitalize(text, names),
+            )
+        } else {
+            joined += segment
+        }
+    }
+    return joined
+}
+
+/** Пауза, после которой реплика без точки считается законченной, а не прерванной. */
+internal const val SENTENCE_GAP_MS = 1_000L
+
+private fun endsSentence(text: String): Boolean =
+    text.trimEnd().trimEnd('»', '"', '\'', ')', ']').lastOrNull()?.let { it in ".!?…" } ?: true
+
+/** Ядро слова: буквы, цифры и дефисы, начиная с первой буквы или цифры. */
+private fun coreOf(token: String): String? {
+    val start = token.indexOfFirst { it.isLetterOrDigit() }
+    if (start < 0) return null
+    var end = start
+    while (end < token.length && (token[end].isLetterOrDigit() || token[end] == '-')) end++
+    return token.substring(start, end).trimEnd('-')
+}
+
+/**
+ * Имена в записи: слово стоит с заглавной посреди предложения и ни разу не
+ * встречается со строчной. Знаки без букв («—») предыдущим словом не считаются.
+ */
+private class NameStats {
+    private val capitalizedMid = HashSet<String>()
+    private val lowercase = HashSet<String>()
+
+    val names: Set<String> get() = capitalizedMid - lowercase
+
+    fun observe(text: String) {
+        var previous: String? = null
+        for (token in text.split(' ', '\n', '\t')) {
+            val core = coreOf(token) ?: continue
+            val key = core.lowercase()
+            if (core[0].isLowerCase()) {
+                lowercase += key
+            } else if (core[0].isUpperCase() && previous != null && !endsSentence(previous)) {
+                capitalizedMid += key
+            }
+            previous = token
+        }
+    }
+}
+
+private fun properNouns(segments: List<Segment>): Set<String> =
+    NameStats().apply { segments.forEach { observe(it.text) } }.names
+
+/**
+ * То же для живого показа: реплика уже отправлена и склеить её нельзя, но у
+ * следующей можно убрать лишнюю заглавную в момент отправки. Решение — по
+ * онлайн-спикеру и уже прозвучавшему тексту; в `Done` [joinSentenceContinuations]
+ * пересчитывает всё по исходным текстам.
+ */
+internal class LiveSentenceCase(private val maxGapMs: Long = SENTENCE_GAP_MS) {
+    private val stats = NameStats()
+    private var last: Segment? = null
+
+    fun apply(segment: Segment): Segment {
+        val previous = last
+        val text = segment.text.trim()
+        val fixed = if (previous != null && text.isNotEmpty() && previous.speaker == segment.speaker &&
+            segment.startMs - previous.endMs < maxGapMs && !endsSentence(previous.text)
+        ) {
+            segment.copy(text = decapitalize(text, stats.names))
+        } else {
+            segment
+        }
+        stats.observe(segment.text)
+        last = segment
+        return fixed
+    }
+}
+
+private fun decapitalize(text: String, names: Set<String>): String {
+    val start = text.indexOfFirst { it.isLetterOrDigit() }
+    if (start < 0) return text
+    val core = coreOf(text.substring(start)) ?: return text
+    val keep = !core[0].isUpperCase() ||
+        core.lowercase() in names ||
+        core.any { it.isDigit() || it in 'a'..'z' || it in 'A'..'Z' } ||
+        (core.length > 1 && core.all { !it.isLetter() || it.isUpperCase() })
+    return if (keep) text else text.substring(0, start) + text[start].lowercaseChar() + text.substring(start + 1)
+}

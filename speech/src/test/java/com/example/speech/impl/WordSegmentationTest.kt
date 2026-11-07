@@ -120,6 +120,82 @@ class WordSegmentationTest {
         assertEquals(listOf(0L to 2_000L, 2_100L to 3_000L, 4_000L to 5_000L), merged.map { it.startMs to it.endMs })
     }
 
+    @Test
+    fun `a sentence broken at a chunk border is joined without the extra capital`() {
+        // Реальный случай: «…увидеть экран и» + «Оценить качество сборки.» с паузой 100 мс.
+        val joined = joinSentenceContinuations(
+            listOf(
+                seg(0, 0, 4_000, "Мне было важно увидеть экран и"),
+                seg(0, 4_100, 6_000, "Оценить качество сборки."),
+                seg(1, 6_500, 8_000, "Понимаю."),
+            ),
+        )
+
+        assertEquals(listOf("Мне было важно увидеть экран и оценить качество сборки.", "Понимаю."), joined.map { it.text })
+        assertEquals(0L to 6_000L, joined[0].startMs to joined[0].endMs)
+    }
+
+    @Test
+    fun `names keep their capital, other words become lowercase`() {
+        val joined = joinSentenceContinuations(
+            listOf(
+                seg(0, 0, 2_000, "Спасибо, Маша. Я думаю, что"),
+                seg(0, 2_200, 3_000, "Маша права."),
+                seg(0, 5_000, 6_000, "Мы поедем туда, где"),
+                seg(0, 6_300, 7_000, "— Самого начала было видно."),
+                seg(0, 9_000, 10_000, "Купил телефон в"),
+                seg(0, 10_200, 11_000, "МГУ и Google пишут, что"),
+                seg(0, 11_200, 12_000, "Я согласна."),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                "Спасибо, Маша. Я думаю, что Маша права.",
+                "Мы поедем туда, где — самого начала было видно.",
+                "Купил телефон в МГУ и Google пишут, что я согласна.",
+            ),
+            joined.map { it.text },
+        )
+    }
+
+    @Test
+    fun `live utterances lose the extra capital as they are sent`() {
+        val live = LiveSentenceCase()
+        val sent = listOf(
+            seg(0, 0, 4_000, "Спасибо, Маша. Мне было важно увидеть экран и"),
+            seg(0, 4_100, 6_000, "Оценить качество сборки. Мне кажется, что"),
+            seg(0, 6_200, 7_000, "Маша права."),
+            seg(1, 7_100, 8_000, "Понимаю, но"),
+            seg(0, 8_100, 9_000, "Другой спикер начинает."),
+        ).map { live.apply(it).text }
+
+        assertEquals(
+            listOf(
+                "Спасибо, Маша. Мне было важно увидеть экран и",
+                "оценить качество сборки. Мне кажется, что",
+                "Маша права.",
+                "Понимаю, но",
+                "Другой спикер начинает.",
+            ),
+            sent,
+        )
+    }
+
+    @Test
+    fun `finished sentences, long pauses and other speakers are not joined`() {
+        val segments = listOf(
+            seg(0, 0, 2_000, "Это конец фразы."),
+            seg(0, 2_100, 3_000, "Новая фраза"),
+            seg(0, 4_500, 5_000, "После долгой паузы"),
+            seg(1, 5_100, 6_000, "Другой человек."),
+            seg(1, 6_100, 7_000, "«Цитата?»"),
+            seg(1, 7_100, 8_000, "Ответ."),
+        )
+
+        assertEquals(segments.map { it.text }, joinSentenceContinuations(segments).map { it.text })
+    }
+
     private fun w(text: String, fromS: Double, toS: Double) = AsrWord(text, s(fromS), s(toS))
 
     private fun s(seconds: Double) = Math.round(seconds * SR).toInt()

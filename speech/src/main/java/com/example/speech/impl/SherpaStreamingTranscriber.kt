@@ -256,6 +256,7 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                 queue.send(chunk)
             }
             val produced = ArrayList<Segment>()
+            val liveCase = LiveSentenceCase()
             var workerFailure: Throwable? = null
 
             val worker = launch(Dispatchers.Default) {
@@ -270,7 +271,9 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                         // границах слов, у каждой реплики — свой embedding и спикер.
                         for (segment in processor.process(chunk, chunkIndex++)) {
                             produced += segment
-                            send(StreamingEvent.Utterance(segment))
+                            // Наружу — без лишней заглавной у продолжения фразы;
+                            // records хранят исходный текст для финальной склейки.
+                            send(StreamingEvent.Utterance(liveCase.apply(segment)))
                         }
                     }
                 } catch (c: CancellationException) {
@@ -317,8 +320,11 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                         minSpeakerShare = config.speakerMinShare,
                     ).relabel(records, expectedSpeakers)
                     // Соседние реплики одного чанка с одним финальным спикером —
-                    // ложный разрез по смене голоса: склеиваем обратно.
-                    val final = mergeSameSpeakerNeighbors(relabeled, records.map { it.chunkIndex })
+                    // ложный разрез по смене голоса: склеиваем обратно. Затем фраза,
+                    // разорванная на границе кусков, склеивается без лишней заглавной.
+                    val final = joinSentenceContinuations(
+                        mergeSameSpeakerNeighbors(relabeled, records.map { it.chunkIndex }),
+                    )
                     trace?.invoke(
                         "stream done segments=${final.size} " +
                             "speakers online=${produced.map { it.speaker }.distinct().size}" +
