@@ -20,7 +20,7 @@ import com.example.onwin.domain.repository.SessionRepository
 import com.example.onwin.domain.repository.TranscriptOnboardingRepository
 import com.example.onwin.domain.repository.WelcomeRepository
 import com.example.onwin.ui.notification.ServiceForegroundStarter
-import com.example.llm.OnDeviceCorrector
+import com.example.llm.OnDeviceLlm
 import com.example.speech.api.SpeechConfig
 import com.example.speech.api.Transcriber
 import com.example.speech.impl.SherpaVadTranscriber
@@ -82,22 +82,26 @@ object AppBindings {
         wakeLock: WakeLockHolder,
         clock: Clock,
         microphone: MicrophoneRecorder,
-    ): ProcessingController = DefaultProcessingController(
-        audio = audio,
-        repository = repository,
-        transcriber = transcriber,
-        speechConfig = SpeechConfig(),
-        foreground = foreground,
-        wakeLock = wakeLock,
-        clock = clock,
-        log = { Log.i("Processing", it) },
-        microphone = microphone,
-        livePcm = GrowingWavPcmSource,
-        recordingTitle = { context.getString(R.string.recording_name) },
-        onTranscriptionCompleted = (context as OnWinApp)::onTranscriptionCompleted,
-        // Модели нет — коррекции нет: приложение работает ровно как раньше.
-        corrector = OnDeviceCorrector.create(context),
-    )
+    ): ProcessingController {
+        // Модели нет — коррекции и анализа нет: приложение работает ровно как раньше.
+        val llm = OnDeviceLlm.create(context)
+        return DefaultProcessingController(
+            audio = audio,
+            repository = repository,
+            transcriber = transcriber,
+            speechConfig = SpeechConfig(),
+            foreground = foreground,
+            wakeLock = wakeLock,
+            clock = clock,
+            log = { Log.i("Processing", it) },
+            microphone = microphone,
+            livePcm = GrowingWavPcmSource,
+            recordingTitle = { context.getString(R.string.recording_name) },
+            onTranscriptionCompleted = (context as OnWinApp)::onTranscriptionCompleted,
+            corrector = llm?.corrector,
+            analyzer = llm?.analyzer,
+        )
+    }
 
     @Provides
     fun welcomeRepository(preferences: WelcomePreferences): WelcomeRepository = preferences

@@ -60,6 +60,8 @@ class RoomSessionRepository(
                     TranscriptSegment(segment.index, segment.speaker, segment.startMs, segment.endMs, segment.text)
                 },
                 speakerNames = row.speakerNames.map { speaker -> SpeakerName(speaker.speaker, speaker.name) },
+                summary = row.notes?.summary,
+                suggestedNames = row.suggestions.map { suggestion -> SpeakerName(suggestion.speaker, suggestion.name) },
             )
         }
     }
@@ -83,6 +85,14 @@ class RoomSessionRepository(
         dao.replaceSegments(id, segments.mapIndexed { index, segment -> segment.toEntity(id, index) })
 
     override suspend fun clearSegments(id: String) = dao.clearSegments(id)
+
+    override suspend fun saveAnalysis(id: String, summary: String, speakerNames: Map<Int, String>) =
+        dao.saveAnalysis(id, summary, speakerNames, clock.millis())
+
+    override suspend fun clearAnalysis(id: String) {
+        dao.clearNotes(id)
+        dao.clearSuggestions(id)
+    }
 
     override suspend fun failUnfinished(errorCode: ErrorCode): Int = dao.failUnfinished(errorCode, clock.millis())
 

@@ -13,6 +13,7 @@ import com.example.speech.api.StreamingTranscriber
 import com.example.speech.api.TextCorrector
 import com.example.speech.api.Transcriber
 import com.example.speech.api.TranscriptionEvent
+import com.example.speech.api.TranscriptAnalyzer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -72,6 +73,7 @@ import kotlin.time.TimeSource
  * @param livePcm источник PCM для живого режима. Живой и файловый режимы используют один транскрибер.
  * @param corrector необязательная постобработка текста локальной LLM. Запускается после расшифровки
  *   и после [Transcriber.release]: ASR и LLM не должны держать память одновременно.
+ * @param analyzer необязательный разбор диалога той же LLM: имена спикеров и резюме.
  */
 class DefaultProcessingController(
     private val audio: AudioToWav,
@@ -90,6 +92,7 @@ class DefaultProcessingController(
     private val livePcm: LivePcmSource? = null,
     private val onTranscriptionCompleted: (String) -> Unit = {},
     private val corrector: TextCorrector? = null,
+    private val analyzer: TranscriptAnalyzer? = null,
 ) : ProcessingController {
 
     private val scope = CoroutineScope(
@@ -215,6 +218,7 @@ class DefaultProcessingController(
                 return@async false
             }
             repository.clearSegments(sessionId)
+            repository.clearAnalysis(sessionId)
             repository.updateStatus(sessionId, SessionStatus.QUEUED)
             true
         }
@@ -370,7 +374,7 @@ class DefaultProcessingController(
     }
 
     private fun releaseModels(batch: Batch) {
-        releaseCorrector(batch)
+        releaseLlm(batch)
         releaseTranscriber(batch)
     }
 
@@ -380,13 +384,6 @@ class DefaultProcessingController(
         batch.needsRelease = false
         batch.loaded = false
         transcriber.release()
-    }
-
-    /** Выгружает LLM, если она была загружена в этой пачке. */
-    private fun releaseCorrector(batch: Batch) {
-        if (!batch.correctorLoaded) return
-        batch.correctorLoaded = false
-        corrector?.release()
     }
 
     private suspend fun execute(active: ActiveJob) {
@@ -414,6 +411,7 @@ class DefaultProcessingController(
             if (!active.queued.awaitPrepared()) return
             if (stop.status == SessionStatus.CANCELLED) {
                 repository.clearSegments(id)
+                repository.clearAnalysis(id)
                 active.createdWav?.let { wav ->
                     wav.delete()
                     repository.setWav(id, null, null)
@@ -702,47 +700,80 @@ class DefaultProcessingController(
     }
 
     /**
-     * Необязательный проход LLM по готовой расшифровке.
+     * Необязательный проход LLM по готовой расшифровке: правка реплик и разбор
+     * диалога (имена спикеров, резюме).
      *
      * Порядок важен: сначала выгружаются модели ASR, потом грузится LLM — иначе
      * GigaAM, embedding-модель и 0,5B-модель окажутся в памяти одновременно, и
      * на 4-ГБ телефоне процесс убьют прямо во время обработки.
      *
-     * Коррекция — улучшение, а не обязательный этап: любая её ошибка оставляет
+     * Оба шага — улучшение, а не обязательный этап: любая их ошибка оставляет
      * исходный текст ASR, который всегда валиден. Отмена (пользователь нажал
      * «Отменить») пробрасывается наверх и обрабатывается как обычно.
      */
     private suspend fun correct(active: ActiveJob, batch: Batch, metrics: JobMetrics) {
-        val corrector = corrector ?: return
-        val segments = active.finalSegments ?: return
-        if (segments.isEmpty()) return
+        val corrector = corrector
+        val analyzer = analyzer
+        if (corrector == null && analyzer == null) return
+        val source = active.finalSegments ?: return
+        if (source.isEmpty()) return
         val id = active.sessionId
         try {
             releaseTranscriber(batch)
             repository.updateStatus(id, SessionStatus.CORRECTING)
-            report(active, ProcessingStage.CORRECTING, null)
-            loadCorrector(batch)
-            val mark = TimeSource.Monotonic.markNow()
-            val corrected = ArrayList<Segment>(segments.size)
-            segments.forEachIndexed { index, segment ->
-                val text = corrector.correct(segment.text)
-                corrected += if (text == segment.text) segment else segment.copy(text = text)
-                report(active, ProcessingStage.CORRECTING, (index + 1f) / segments.size)
+            report(active, ProcessingStage.CORRECTING, 0f)
+
+            var segments = source
+            if (corrector != null) {
+                loadLlm(batch)
+                val mark = TimeSource.Monotonic.markNow()
+                segments = correctSegments(corrector, source) { fraction ->
+                    report(active, ProcessingStage.CORRECTING, fraction * CORRECTION_SHARE)
+                }
+                metrics.correction = mark.elapsedNow()
+                if (segments != source) repository.replaceSegments(id, segments)
             }
-            metrics.correction = mark.elapsedNow()
-            if (corrected != segments) repository.replaceSegments(id, corrected)
+
+            if (analyzer != null) {
+                loadLlm(batch)
+                report(active, ProcessingStage.CORRECTING, CORRECTION_SHARE)
+                val mark = TimeSource.Monotonic.markNow()
+                val notes = analyzer.analyze(segments)
+                metrics.analysis = mark.elapsedNow()
+                if (notes != null) repository.saveAnalysis(id, notes.summary, notes.speakerNames)
+                report(active, ProcessingStage.CORRECTING, 1f)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log("Correction of $id failed: $e")
+            log("LLM post-processing of $id failed: $e")
         }
     }
 
-    private suspend fun loadCorrector(batch: Batch) {
-        if (batch.correctorLoaded) return
-        val corrector = corrector ?: return
-        corrector.load()
-        batch.correctorLoaded = true
+    /** Правит текст реплик, не трогая спикеров и метки. */
+    private suspend fun correctSegments(
+        corrector: TextCorrector,
+        segments: List<Segment>,
+        onProgress: (Float) -> Unit,
+    ): List<Segment> = segments.mapIndexed { index, segment ->
+        val text = corrector.correct(segment.text)
+        onProgress((index + 1f) / segments.size)
+        if (text == segment.text) segment else segment.copy(text = text)
+    }
+
+    /** Один генератор на корректор и анализатор: грузим один раз на пачку. */
+    private suspend fun loadLlm(batch: Batch) {
+        if (batch.llmLoaded) return
+        corrector?.load()
+        analyzer?.load()
+        batch.llmLoaded = true
+    }
+
+    private fun releaseLlm(batch: Batch) {
+        if (!batch.llmLoaded) return
+        batch.llmLoaded = false
+        corrector?.release()
+        analyzer?.release()
     }
 
     private fun report(active: ActiveJob, stage: ProcessingStage, fraction: Float?) {
@@ -824,8 +855,8 @@ class DefaultProcessingController(
         // Контракт требует всегда вызывать release: в конце пачки он вызывается, даже если load не понадобился.
         var needsRelease = true
 
-        /** LLM загружена в этой пачке: грузим один раз и выгружаем вместе с ASR. */
-        var correctorLoaded = false
+        /** LLM загружена в этой пачке: один генератор на корректор и анализатор. */
+        var llmLoaded = false
     }
 
     private class StepFailure(val code: ErrorCode, override val cause: Throwable) : Exception(cause)
@@ -837,6 +868,7 @@ class DefaultProcessingController(
         var load: Duration? = null
         var transcription: Duration? = null
         var correction: Duration? = null
+        var analysis: Duration? = null
 
         fun summary(id: String): String {
             val totalMs = started.elapsedNow().inWholeMilliseconds
@@ -844,10 +876,11 @@ class DefaultProcessingController(
             return String.format(
                 Locale.ROOT,
                 "Job %s done: audio=%d ms, conversion=%s, load=%s, transcription=%d ms, correction=%s, " +
-                    "total=%d ms, RTF total=%.3f, RTF transcription=%.3f",
+                    "analysis=%s, total=%d ms, RTF total=%.3f, RTF transcription=%.3f",
                 id, audioMs, conversion?.inWholeMilliseconds?.let { "$it ms" } ?: "reused",
                 load?.inWholeMilliseconds?.let { "$it ms" } ?: "cached",
                 transcriptionMs, correction?.inWholeMilliseconds?.let { "$it ms" } ?: "skipped",
+                analysis?.inWholeMilliseconds?.let { "$it ms" } ?: "skipped",
                 totalMs, totalMs.toDouble() / audioMs, transcriptionMs.toDouble() / audioMs,
             )
         }
@@ -856,5 +889,8 @@ class DefaultProcessingController(
     private companion object {
         const val DEFAULT_NAME = "audio"
         const val WAV_HEADER_BYTES = 44L
+
+        /** Доля прогресса этапа `CORRECTING`, отведённая правке реплик (остальное — анализ). */
+        const val CORRECTION_SHARE = 0.7f
     }
 }

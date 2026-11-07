@@ -142,6 +142,11 @@ class RecordingViewModel @Inject constructor(
             false
         }
 
+    /** Применяет имя, предложенное LLM: то же, что пользователь ввёл бы в диалоге. */
+    fun applySuggestedName(speaker: Int, name: String) {
+        viewModelScope.launch { setSpeakerName(speaker, name) }
+    }
+
     /** Отменяет обработку. */
     fun cancel() = controller.cancel(sessionId)
 

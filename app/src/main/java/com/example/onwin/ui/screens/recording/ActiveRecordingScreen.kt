@@ -141,6 +141,7 @@ internal fun ActiveRecordingScreen(
     onRetry: () -> Unit = {},
     exportInProgress: Boolean = false,
     onExport: (() -> Unit)? = null,
+    onApplySuggestedName: ((Int, String) -> Unit)? = null,
     panelSlot: NavigationPanelSlot? = null,
     panelDimmed: Boolean = false,
     onboardingStep: TranscriptOnboardingStep? = null,
@@ -254,8 +255,16 @@ internal fun ActiveRecordingScreen(
                         ScreenControls(visible = !expanded) {
                             Column {
                                 RecordingSummary(detail, elapsedMs, compact)
+                                val suggested = detail.suggestedNames.filterNot { suggestion ->
+                                    detail.speakerNames.any { it.speaker == suggestion.speaker }
+                                }
+                                if (detail.summary != null || suggested.isNotEmpty()) {
+                                    Spacer(Modifier.height(12.dp))
+                                    LlmNotes(detail.summary, suggested, onApplySuggestedName)
+                                }
                                 Spacer(Modifier.height(14.dp))
                             }
+                        }
                         }
                         val maxHeight = if (status == SessionStatus.DONE) Modifier else {
                             val collapsedHeight = if (compact) 184.dp else 208.dp
@@ -689,6 +698,60 @@ private fun recordingControlsPanel(
         }
     },
 )
+
+@Composable
+private fun LlmNotes(
+    summary: String?,
+    suggestions: List<SpeakerName>,
+    onApply: ((Int, String) -> Unit)?,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().recordingSurface().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (summary != null) {
+            Text(
+                text = stringResource(R.string.llm_summary_title),
+                color = RecordingDurationColor,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Text(
+                text = summary,
+                color = RecordingTranscriptText,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 5,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (suggestions.isNotEmpty() && onApply != null) {
+            Text(
+                text = stringResource(R.string.llm_names_title),
+                color = RecordingDurationColor,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                suggestions.forEach { suggestion ->
+                    val shape = RoundedCornerShape(12.dp)
+                    Text(
+                        text = stringResource(
+                            R.string.llm_suggested_name,
+                            suggestion.speaker + 1,
+                            suggestion.name,
+                        ),
+                        modifier = Modifier
+                            .clip(shape)
+                            .background(RecordingSpeakerBackground, shape)
+                            .border(1.dp, RecordingSpeakerOutline, shape)
+                            .clickable(role = Role.Button) { onApply(suggestion.speaker, suggestion.name) }
+                            .padding(horizontal = 11.dp, vertical = 5.dp),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+    }
+}
 
 private fun Modifier.recordingSurface(): Modifier {
     val shape = RoundedCornerShape(22.dp)

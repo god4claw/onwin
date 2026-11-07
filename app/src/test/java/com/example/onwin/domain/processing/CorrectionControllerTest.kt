@@ -1,6 +1,7 @@
 package com.example.onwin.domain.processing
 
 import com.example.speech.api.TextCorrector
+import com.example.speech.api.TranscriptAnalyzer
 import com.example.onwin.domain.model.SessionStatus.CANCELLED
 import com.example.onwin.domain.model.SessionStatus.CONVERTING
 import com.example.onwin.domain.model.SessionStatus.CORRECTING
@@ -112,6 +113,56 @@ class CorrectionControllerTest {
     }
 
     @Test
+    fun analysis_savesSummaryAndSuggestedNames() = runTest {
+        val analyzer = FakeTranscriptAnalyzer()
+        val controller = createController(analyzer = analyzer)
+
+        val id = controller.enqueueImport(SOURCE)
+        advanceUntilIdle()
+
+        assertEquals(DONE, repository.session(id).status)
+        assertEquals("Обсудили сроки и договорились о встрече.", repository.summary(id))
+        assertEquals(mapOf(0 to "Анна"), repository.suggestedNames(id))
+        assertEquals(1, analyzer.loads)
+        assertEquals(1, analyzer.releases)
+        // Анализ идёт по финальным сегментам расшифровки.
+        assertEquals(ScriptedTranscriber.FINAL, analyzer.lastSegments)
+    }
+
+    @Test
+    fun analysis_runsOnCorrectedText() = runTest {
+        val corrector = FakeTextCorrector().apply {
+            behavior = { text -> text.replace("Итог", "Итог (исправлено)") }
+        }
+        val analyzer = FakeTranscriptAnalyzer().apply { behavior = { null } }
+        val controller = createController(corrector, analyzer)
+
+        val id = controller.enqueueImport(SOURCE)
+        advanceUntilIdle()
+
+        assertEquals(DONE, repository.session(id).status)
+        assertEquals(
+            ScriptedTranscriber.FINAL.map { it.copy(text = it.text.replace("Итог", "Итог (исправлено)")) },
+            analyzer.lastSegments,
+        )
+        assertNull(repository.summary(id))
+    }
+
+    @Test
+    fun analysisFailure_keepsTranscriptAndCompletes() = runTest {
+        val analyzer = FakeTranscriptAnalyzer().apply { behavior = { error("model crashed") } }
+        val controller = createController(analyzer = analyzer)
+
+        val id = controller.enqueueImport(SOURCE)
+        advanceUntilIdle()
+
+        assertEquals(DONE, repository.session(id).status)
+        assertEquals(ScriptedTranscriber.FINAL, repository.segments(id))
+        assertNull(repository.summary(id))
+        assertEquals(1, analyzer.releases)
+    }
+
+    @Test
     fun cancelDuringCorrection_discardsTextAndWav() = runTest {
         val corrector = FakeTextCorrector(events).apply { behavior = { awaitCancellation() } }
         val controller = createController(corrector)
@@ -147,7 +198,10 @@ class CorrectionControllerTest {
         assertEquals(2, transcriber.releases)
     }
 
-    private fun TestScope.createController(corrector: TextCorrector?) = DefaultProcessingController(
+    private fun TestScope.createController(
+        corrector: TextCorrector? = null,
+        analyzer: TranscriptAnalyzer? = null,
+    ) = DefaultProcessingController(
         audio = audio,
         repository = repository,
         transcriber = transcriber,
@@ -158,6 +212,7 @@ class CorrectionControllerTest {
         clock = Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC),
         log = ::println,
         corrector = corrector,
+        analyzer = analyzer,
     )
 
     private companion object {

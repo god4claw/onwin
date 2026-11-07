@@ -127,6 +127,7 @@ internal fun ActiveRecordingRoute(
             onCancel = { confirmCancelProcessing = processing },
             onRenameSpeaker = { editingSpeaker = it },
             onEditSegment = { editingSegment = it },
+            onApplySuggestedName = viewModel::applySuggestedName,
             playback = playback.state,
             playbackPosition = playback.positionState,
             onTogglePlayback = playback::toggle,

@@ -60,6 +60,15 @@ interface SessionRepository {
     suspend fun clearSegments(id: String)
 
     /**
+     * Сохраняет заметки LLM: резюме и предложенные имена спикеров.
+     * Прежние заметки заменяются; пустые значения допустимы.
+     */
+    suspend fun saveAnalysis(id: String, summary: String, speakerNames: Map<Int, String>)
+
+    /** Убирает заметки LLM: при повторе обработки или отмене. */
+    suspend fun clearAnalysis(id: String)
+
+    /**
      * Переводит сессии, оставшиеся в `RECORDING`/`QUEUED`/`CONVERTING`/`TRANSCRIBING`, в `FAILED` с [errorCode].
      *
      * @return сколько сессий изменено.

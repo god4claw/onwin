@@ -71,25 +71,37 @@ stream/batch → Done(segments) → release() ASR → postprocess → экспо
   (AAR 0.19.0 в `llm/local-repo`, ядро ORT 1.31.1);
 - модель Qwen2.5-0.5B-Instruct (ONNX GenAI, int4) ставится отдельно скриптами
   `llm/scripts/fetch-model.ps1` и `llm/scripts/push-model.ps1` — в APK её нет;
-- `OnDeviceCorrector.create(context)` собирает цепочку `CompositeCorrector`
-  (словарь + `LlmCorrector`) и возвращает `null`, если модели нет.
+- `OnDeviceLlm.create(context)` собирает на одной модели два прохода:
+  `corrector` (`CompositeCorrector`: словарь + `LlmCorrector`) и `analyzer`
+  (`LlmDialogueAnalyzer`: имена спикеров и резюме). Нет модели — `null`.
 
 ```kotlin
-// AppBindings: модель есть — коррекция будет, нет — этап пропускается.
-val corrector = OnDeviceCorrector.create(context)
+// AppBindings: модель есть — оба прохода будут, нет — этап пропускается.
+val llm = OnDeviceLlm.create(context)
 
-DefaultProcessingController(..., corrector = corrector)
+DefaultProcessingController(..., corrector = llm?.corrector, analyzer = llm?.analyzer)
 ```
 
 Порядок в очереди задан в `DefaultProcessingController.correct()`:
 `Done` ASR → `Transcriber.release()` → `CORRECTING` в статусе и прогрессе →
-`corrector.load()` → правка по репликам → `replaceSegments` → `DONE`.
-Модель корректора живёт до конца пачки и выгружается вместе с ASR.
+правка реплик (0…70 %) → разбор диалога (70…100 %) → `DONE`.
+Модель живёт до конца пачки и выгружается вместе с ASR.
+
+Разбор диалога — `LlmDialogueAnalyzer`:
+
+- диалог режется на куски по 3 000 символов, имена собираются по всем кускам:
+  имя, названное один раз в середине разговора, иначе не найти;
+- имя принимается, только если не спорит с другими кусками (при равенстве
+  голосов — отказ);
+- резюме валидируется: эхо расшифровки («Спикер 1: …»), текст без кириллицы,
+  короче 40 символов и с `|` отбрасываются;
+- результат сохраняется в Room (`session_notes`, `speaker_suggestions`) и виден
+  на экране записи: «Кратко» и чипы «Спикер N — Имя».
 
 Обещание «LLM проверяет отмену на каждом токене» выполнено:
 `OnnxGenAiGenerator.generate` вызывает `ensureActive()` перед каждым
-`generateNextToken`, поэтому `withTimeoutOrNull` в `LlmCorrector` реально
-останавливает генерацию.
+`generateNextToken`, поэтому `withTimeoutOrNull` в корректоре и анализаторе
+реально останавливает генерацию.
 
 На финальном проходе бюджет щедрее (5 с на реплику): спешить некуда, а обрыв
 на середине хуже ожидания.
