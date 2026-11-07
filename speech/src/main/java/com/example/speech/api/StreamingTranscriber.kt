@@ -48,8 +48,15 @@ data class AgcConfig(
     }
 }
 
+/**
+ * Silero VAD. Порог 0,35 вместо стандартного 0,5: при 0,5 VAD терял речь в шуме
+ * (белый шум 16 дБ — 13 удалённых слов из 40). На 45 синтетических разговорах,
+ * включая 19, не участвовавших в подборе, 0,35 даёт меньше WER и ошибок
+ * атрибуции спикеров; ниже (0,3) VAD начинает принимать шум за речь и плодит
+ * лишних спикеров. См. docs/bench-vad-noise.md.
+ */
 data class VadConfig(
-    val threshold: Float = 0.5f,
+    val threshold: Float = 0.35f,
     val minSilenceMs: Int = 450,
     val minSpeechMs: Int = 250,
     val maxSpeechMs: Int = 25_000

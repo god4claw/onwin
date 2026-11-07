@@ -123,7 +123,7 @@ sealed interface StreamingEvent {
 | `vad: VadConfig` | см. ниже | Только streaming |
 | `agc: AgcConfig` | см. ниже | АРУ перед VAD, только streaming |
 
-`VadConfig`: `threshold = 0.5f`, `minSilenceMs = 450`, `minSpeechMs = 250`, `maxSpeechMs = 25_000`.
+`VadConfig`: `threshold = 0.35f`, `minSilenceMs = 450`, `minSpeechMs = 250`, `maxSpeechMs = 25_000`. Порог ниже стандартного для Silero (0,5): при 0,5 терялась речь в шуме — [`docs/bench-vad-noise.md`](../docs/bench-vad-noise.md).
 
 `AgcConfig`: `enabled = true`, `targetDbfs = -20f`, `maxGainDb = 24f`. Без АРУ Silero VAD пропускал собеседника, который сидит дальше от микрофона (−33…−37 dBFS при фоне −47): на реальной записи терялось ~9 с разборчивой речи, и порог VAD 0,25 не помогал. АРУ работает только по прошлому сигналу, без задержки; громкую речь не приглушает; на кадрах не громче фона усиление не растёт, а в паузах возвращается к 0 дБ. Выровненный сигнал видит только VAD: ASR и embedding получают исходный отрезок (кольцевой буфер на 90 с), иначе меняющееся усиление и поднятый фон сливали спикеров. Выключить — `AgcConfig(enabled = false)`.
 
@@ -246,7 +246,7 @@ try {
 ```kotlin
 SpeechConfig(
     vad = VadConfig(
-        threshold = 0.5f,       // 0..1, выше → меньше ложных срабатываний
+        threshold = 0.35f,      // 0..1, выше → меньше ложных срабатываний, но теряется тихая речь
         minSilenceMs = 450,     // тишина, закрывающая реплику
         minSpeechMs = 250,      // короче — не считаем речью
         maxSpeechMs = 25_000,   // принудительный разрез длинной речи

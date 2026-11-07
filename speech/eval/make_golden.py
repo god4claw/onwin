@@ -28,12 +28,17 @@ are digital zeros). In noisy files the noise is everywhere and the slot stays
 as is. Breaths and low-level TTS noise still count as speech, so treat
 timestamp errors on synthetic data as comparative, not absolute.
 
-Usage: python make_golden.py <parquet> <out_dir> [--holdout]
+Usage: python make_golden.py <parquet> <out_dir> [--holdout | --val2]
 Needs numpy and pyarrow.
 
 --holdout writes a separate held-out set (other rows of the same shard, no
 golden_long) for checking that parameters tuned on the golden set generalize:
 never tune on it.
+
+--val2 expects the NEXT shard, train-00001-of-00030.parquet, and writes 19
+conversations from it (more 4-speaker groups). It caught overfitting once:
+re-clustering parameters tuned on golden+holdout were worse here. Keep it
+for final checks only.
 """
 from __future__ import annotations
 
@@ -59,6 +64,17 @@ GOLDEN = [
     ("syn25_group3", 25),
     ("syn35_group4", 35),
     ("syn45_mono1", 45),
+]
+
+# train-00001-of-00030.parquet: 4-speaker groups, 3-speaker, dialogues with
+# noise and simultaneous speech, monologues.
+VAL2 = [
+    ("v00_group4_cafe", 0), ("v11_group4_pink", 11), ("v15_group4", 15), ("v23_group4_simult", 23),
+    ("v47_group4_crowd", 47), ("v58_group4_white", 58), ("v33_group3_simult", 33), ("v07_dialog2", 7),
+    ("v18_interview2_brown", 18), ("v19_interview2_brown_simult", 19), ("v25_dialog2", 25),
+    ("v37_interview2_hum_simult", 37), ("v41_dialog2_static_simult", 41), ("v46_interview2_crowd", 46),
+    ("v52_dialog2_white", 52), ("v62_dialog2_cafe", 62), ("v03_mono1_crowd", 3), ("v16_mono1", 16),
+    ("v32_mono1_static", 32),
 ]
 
 # Other rows of the same shard, duplicates skipped: 2-4 speakers, clean/noisy,
@@ -96,8 +112,9 @@ def write_refs(out: Path, name: str, turns: list[dict]) -> None:
 
 
 def main() -> None:
-    args = [a for a in sys.argv[1:] if a != "--holdout"]
+    args = [a for a in sys.argv[1:] if a not in ("--holdout", "--val2")]
     holdout = "--holdout" in sys.argv[1:]
+    val2 = "--val2" in sys.argv[1:]
     if len(args) != 2:
         raise SystemExit(__doc__)
     src = Path(args[0])
@@ -109,7 +126,7 @@ def main() -> None:
     long_turns: list[dict] = []
     offset = 0.0
 
-    for name, index in (HOLDOUT if holdout else GOLDEN):
+    for name, index in (VAL2 if val2 else HOLDOUT if holdout else GOLDEN):
         row = table.slice(index, 1).to_pylist()[0]
         if int(row["audio"]["sampling_rate"]) != RATE:
             raise SystemExit(f"row {index}: expected {RATE} Hz")
@@ -146,7 +163,7 @@ def main() -> None:
         long_audio.append(gap)
         offset += (len(samples) + len(gap)) / RATE
 
-    if holdout:
+    if holdout or val2:
         return
     long = np.concatenate(long_audio[:-1])
     write_wav(out / "golden_long.wav", long, RATE)

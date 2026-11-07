@@ -124,7 +124,7 @@ streaming.transcribeStream(chunks).collect { event -> /* StreamingEvent */ }
 
 - Batch принимает только канонический WAV: 16 кГц, моно, PCM16, 44-байтовый заголовок.
 - Streaming принимает `Flow<FloatArray>`: 16 кГц, моно, `[-1..1]`.
-- VAD по умолчанию: `threshold = 0.5`, `minSilenceMs = 450`, `minSpeechMs = 250`, `maxSpeechMs = 25_000`.
+- VAD по умолчанию: `threshold = 0.35`, `minSilenceMs = 450`, `minSpeechMs = 250`, `maxSpeechMs = 25_000`.
 
 ## Тесты
 

@@ -62,4 +62,6 @@ A/B-замеры рефакторинга v2 (112 прогонов, BEFORE/AFTER
 
 Расшифровка файлов: batch против VAD-пайплайна (`SherpaVadTranscriber` — точнее, вдвое быстрее, не падает): [`docs/bench-vad-transcriber.md`](docs/bench-vad-transcriber.md).
 
+VAD в шуме: порог Silero 0,35, сравнение с TEN VAD, проверка на новой выборке: [`docs/bench-vad-noise.md`](docs/bench-vad-noise.md).
+
 Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.
