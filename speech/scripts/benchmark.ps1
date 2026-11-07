@@ -18,6 +18,21 @@ param(
     [ValidateRange(10, 1000)]
     [int]$ChunkMs = 100,
 
+    [ValidateRange(0.0, 1.0)]
+    [double]$AutoThreshold = 0.80,
+
+    [ValidateRange(0.0, 1.0)]
+    [double]$OnlineThreshold = 0.45,
+
+    [ValidateRange(0, 60000)]
+    [int]$PruneMinMs = 3000,
+
+    [ValidateRange(0.0, 1.0)]
+    [double]$PruneMinFraction = 0.05,
+
+    [ValidateRange(0.0, 1.0)]
+    [double]$SpeakerChangeThreshold = 0.65,
+
     [string]$Serial = "",
 
     [string]$OutDir = "bench-results",
@@ -121,6 +136,9 @@ $remoteTxt = "$remoteResults/result.txt"
 Write-Host "Preparing device directory..."
 Invoke-Adb @("shell", "run-as", $package, "mkdir", "-p", $remoteDir) | Out-Null
 Invoke-Adb @("shell", "run-as", $package, "mkdir", "-p", $remoteResults) | Out-Null
+# Иначе при редком сбое instrumentation можно вытащить result.json предыдущего прогона.
+Invoke-Adb @("shell", "run-as", $package, "rm", "-f", $remoteJson) | Out-Null
+Invoke-Adb @("shell", "run-as", $package, "rm", "-f", $remoteTxt) | Out-Null
 
 Write-Host "Pushing $wavPath ..."
 Invoke-Adb @("push", $wavPath, $remoteStaging) | ForEach-Object { Write-Host $_ }
@@ -139,8 +157,19 @@ Invoke-Adb @("shell", "rm", "-f", $remoteStaging) | Out-Null
 
 $label = [System.IO.Path]::GetFileNameWithoutExtension($wavPath)
 
+# adb/instrumentation не любит локаль с запятой вместо точки в дробных числах.
+$invariant = [System.Globalization.CultureInfo]::InvariantCulture
+$autoThresholdText = $AutoThreshold.ToString($invariant)
+$onlineThresholdText = $OnlineThreshold.ToString($invariant)
+$pruneFractionText = $PruneMinFraction.ToString($invariant)
+$speakerChangeText = $SpeakerChangeThreshold.ToString($invariant)
+
 # Путь к результату обязан быть путём на устройстве: хост-путь (C:\...) даёт EROFS.
-Write-Host "Running benchmark (mode=$Mode, runs=$Runs, threads=$Threads)..."
+Write-Host (
+    "Running benchmark (mode=$Mode, runs=$Runs, threads=$Threads, " +
+    "auto=$autoThresholdText, online=$onlineThresholdText, " +
+    "prune=$PruneMinMs/$pruneFractionText, change=$speakerChangeText)..."
+)
 $instrumentArgs = @(
     "shell", "am", "instrument", "-w", "-r",
     "-e", "class", "com.example.speech.bench.SpeechBenchmarkTest",
@@ -151,6 +180,11 @@ $instrumentArgs = @(
     "-e", "threads", "$Threads",
     "-e", "runs", "$Runs",
     "-e", "chunk_ms", "$ChunkMs",
+    "-e", "auto_threshold", $autoThresholdText,
+    "-e", "online_threshold", $onlineThresholdText,
+    "-e", "prune_min_ms", "$PruneMinMs",
+    "-e", "prune_min_fraction", $pruneFractionText,
+    "-e", "speaker_change_threshold", $speakerChangeText,
     "-e", "out", $remoteJson,
     "$package/androidx.test.runner.AndroidJUnitRunner"
 )

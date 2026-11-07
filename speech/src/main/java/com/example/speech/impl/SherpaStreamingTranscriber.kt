@@ -7,6 +7,8 @@ import com.example.speech.api.StreamingEvent
 import com.example.speech.api.StreamingTranscriber
 import com.example.speech.audio.OnlineSpeakerClusterer
 import com.example.speech.audio.SherpaVadEngine
+import com.example.speech.audio.SpeakerChangeConfig
+import com.example.speech.audio.SpeakerChangeSplitter
 import com.example.speech.audio.SpeechChunk
 import com.example.speech.audio.VadSegmenter
 import com.example.speech.data.BundledModels
@@ -120,6 +122,14 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             val clusterer = OnlineSpeakerClusterer(
                 threshold = config.onlineClusterThreshold,
                 maxSpeakers = config.maxOnlineSpeakers,
+                minNewSpeakerSamples = MIN_NEW_SPEAKER_SAMPLES,
+            )
+            val changeSplitter = SpeakerChangeSplitter(
+                SpeakerChangeConfig(
+                    windowMs = config.speakerChangeWindowMs,
+                    threshold = config.speakerChangeThreshold,
+                    minSegmentMs = config.speakerChangeMinSegmentMs,
+                ),
             )
             val queue = Channel<SpeechChunk>(capacity = ASR_QUEUE_CAPACITY)
             val produced = ArrayList<Segment>()
@@ -131,21 +141,31 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                     for (chunk in queue) {
                         currentCoroutineContext().ensureActive()
 
-                        val text = asr.transcribe(chunk.samples)
-                        if (text.isBlank()) continue
+                        // VAD-чанк может содержать несколько говорящих. Режем его
+                        // по смене embedding-а до ASR и кластеризации, иначе один
+                        // вектор на смешанный кусок ломает всю онлайн-диаризацию.
+                        val pieces = changeSplitter.split(chunk) { samples ->
+                            extractEmbedding(embedder, samples)
+                        }
+                        for (piece in pieces) {
+                            currentCoroutineContext().ensureActive()
 
-                        val assignment = assignSpeaker(embedder, clusterer, chunk.samples)
-                        val startMs = chunk.startSample * 1000L / VadSegmenter.SAMPLE_RATE
-                        val endMs = (chunk.startSample + chunk.samples.size) * 1000L /
-                            VadSegmenter.SAMPLE_RATE
-                        val segment = Segment(
-                            speaker = assignment.speaker,
-                            startMs = startMs,
-                            endMs = endMs,
-                            text = text,
-                        )
-                        produced += segment
-                        send(StreamingEvent.Utterance(segment))
+                            val text = asr.transcribe(piece.samples)
+                            if (text.isBlank()) continue
+
+                            val assignment = assignSpeaker(embedder, clusterer, piece.samples)
+                            val startMs = piece.startSample * 1000L / VadSegmenter.SAMPLE_RATE
+                            val endMs = (piece.startSample + piece.samples.size) * 1000L /
+                                VadSegmenter.SAMPLE_RATE
+                            val segment = Segment(
+                                speaker = assignment.speaker,
+                                startMs = startMs,
+                                endMs = endMs,
+                                text = text,
+                            )
+                            produced += segment
+                            send(StreamingEvent.Utterance(segment))
+                        }
                     }
                 } catch (c: CancellationException) {
                     throw c
@@ -180,7 +200,11 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                 if (failure != null) {
                     send(StreamingEvent.Failed(failure))
                 } else {
-                    send(StreamingEvent.Done(produced.toList()))
+                    send(
+                        StreamingEvent.Done(
+                            pruneStreamingClusters(produced, config),
+                        ),
+                    )
                 }
             } catch (c: CancellationException) {
                 queue.cancel()
@@ -216,12 +240,31 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             if (embedding == null) {
                 fallbackAssignment(clusterer)
             } else {
-                clusterer.assign(embedding)
+                clusterer.assign(embedding, samples.size)
             }
         } catch (_: Throwable) {
             fallbackAssignment(clusterer)
         }
     }
+
+    /**
+     * Убирает мелкие кластеры, накопившиеся за сессию. Пока сессия идёт,
+     * [OnlineSpeakerClusterer] старается их не создавать, но финальная
+     * постобработка нужна как страховка: `Done` должен отдавать столько
+     * спикеров, сколько реально слышно.
+     */
+    private fun pruneStreamingClusters(
+        segments: List<Segment>,
+        config: SpeechConfig,
+    ): List<Segment> = pruneTinyClustersOf(
+        segments = segments,
+        startMs = { it.startMs },
+        endMs = { it.endMs },
+        speaker = { it.speaker },
+        withSpeaker = { segment, speaker -> segment.copy(speaker = speaker) },
+        minSupportMs = config.clusterPruneMinMs.toLong(),
+        minFraction = config.clusterPruneMinFraction,
+    )
 
     private fun fallbackAssignment(
         clusterer: OnlineSpeakerClusterer,
@@ -267,5 +310,8 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
 
         const val MIN_EMBEDDING_MS = 500
         const val MIN_EMBEDDING_SAMPLES = VadSegmenter.SAMPLE_RATE * MIN_EMBEDDING_MS / 1000
+
+        const val MIN_NEW_SPEAKER_MS = 2_500
+        const val MIN_NEW_SPEAKER_SAMPLES = VadSegmenter.SAMPLE_RATE * MIN_NEW_SPEAKER_MS / 1000
     }
 }
