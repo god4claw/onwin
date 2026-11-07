@@ -86,7 +86,8 @@ Hilt создаёт общие для приложения Room, репозит�
   - ERes2Net (~25 МБ) — speaker embeddings для диаризации; CAM++ (~27 МБ) — запасной;
   - pyannote segmentation int8 (~1.5 МБ) — диаризация;
   - Silero VAD (~0.6 МБ) — псевдостриминг;
-  - словарь GigaAM RNN-T (~13 КБ).
+  - словарь GigaAM RNN-T (~13 КБ);
+  - Parakeet TDT 110M (~130 МБ) — английские фразы, язык определяется сам по выводу GigaAM.
 - Офлайн: модуль не требует `INTERNET`; веса лежат в assets APK и проверяются по `models.sha256`. Сетевой загрузки в модуле нет.
 - Упаковка: в `app/build.gradle.kts` нужен `androidResources { noCompress += listOf("onnx", "txt") }` — `noCompress` библиотеки не пробрасывается в APK приложения, а sherpa-onnx не умеет читать сжатые assets через `AAsset_getBuffer`.
 - Псевдостриминг: `StreamingTranscriber` + `VadConfig`; `Flow<FloatArray>` 16 кГц / моно → VAD → offline-ASR по завершённым репликам. Текст и предварительные номера спикеров приходят по мере готовности реплик, окончательные номера — в `Done`.
@@ -122,5 +123,7 @@ ERes2Net вместо CAM++ для спикеров, набор живых ди�
 GigaAM-v3 e2e RNN-T вместо e2e CTC: пять версий модели, эмулятор, числа и латиница: [`docs/bench-asr-rnnt.md`](docs/bench-asr-rnnt.md).
 
 Длинные записи: чтение WAV кусками и перекластеризация на час и больше, проверка на 76 минутах: [`docs/bench-long-audio.md`](docs/bench-long-audio.md).
+
+Английская речь без выбора языка (GigaAM → Parakeet по латинице), Parakeet против Zipformer: [`docs/bench-english.md`](docs/bench-english.md).
 
 Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.

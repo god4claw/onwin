@@ -73,6 +73,10 @@ param(
     [ValidateSet("", "e2e_ctc", "e2e_rnnt")]
     [string]$AsrModel = "",
 
+    # Английский через Parakeet: пусто — как в SpeechConfig (on).
+    [ValidateSet("", "on", "off")]
+    [string]$English = "",
+
     # Поиск смены говорящего внутри VAD-чанка, мс; -1 — не передавать (SpeechConfig).
     [int]$SpeakerChangeWindowMs = -1,
     [int]$SpeakerChangeHopMs = -1,
@@ -221,6 +225,7 @@ if (-not [double]::IsNaN($AgcMaxGainDb)) { $optionalArgs += @("-e", "agc_max_gai
 if ($DumpEmbeddings) { $optionalArgs += @("-e", "dump_embeddings", "on") }
 if ($EmbeddingModel) { $optionalArgs += @("-e", "embedding_model", $EmbeddingModel) }
 if ($AsrModel) { $optionalArgs += @("-e", "asr_model", $AsrModel) }
+if ($English) { $optionalArgs += @("-e", "english", $English) }
 if ($SpeakerChangeWindowMs -gt 0) { $optionalArgs += @("-e", "speaker_change_window_ms", "$SpeakerChangeWindowMs") }
 if ($SpeakerChangeHopMs -gt 0) { $optionalArgs += @("-e", "speaker_change_hop_ms", "$SpeakerChangeHopMs") }
 if ($SpeakerChangeMinMs -ge 0) { $optionalArgs += @("-e", "speaker_change_min_ms", "$SpeakerChangeMinMs") }

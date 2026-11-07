@@ -31,6 +31,7 @@ Options:
   --recluster-threshold <x>  Streaming final speaker re-clustering threshold, 0..1 (default: SpeechConfig, 0.60)
   --embedding-model <camplus|eres2net>  Speaker embedding model (default: camplus)
   --asr-model <e2e_ctc|e2e_rnnt>     ASR model (default: SpeechConfig, e2e_rnnt)
+  --english <on|off>         English routing to Parakeet (default: SpeechConfig, on)
   --speaker-change-window-ms <n>  CAM++ window for in-chunk speaker change (default: SpeechConfig, 1600)
   --speaker-change-hop-ms <n>     Step between those windows (default: SpeechConfig, 800)
   --speaker-change-min-ms <n>     Minimum distance between change points (default: SpeechConfig, 1500)
@@ -66,6 +67,7 @@ RECLUSTER_THRESHOLD=""
 CHANGE_WINDOW_MS=""
 EMBEDDING_MODEL=""
 ASR_MODEL=""
+ENGLISH=""
 CHANGE_HOP_MS=""
 CHANGE_MIN_MS=""
 SERIAL=""
@@ -97,6 +99,7 @@ while [[ $# -gt 0 ]]; do
         --recluster-threshold) RECLUSTER_THRESHOLD="${2:?--recluster-threshold requires a value}"; shift 2 ;;
         --embedding-model) EMBEDDING_MODEL="${2:?--embedding-model requires a value}"; shift 2 ;;
         --asr-model) ASR_MODEL="${2:?--asr-model requires a value}"; shift 2 ;;
+        --english) ENGLISH="${2:?--english requires a value}"; shift 2 ;;
         --speaker-change-window-ms) CHANGE_WINDOW_MS="${2:?--speaker-change-window-ms requires a value}"; shift 2 ;;
         --speaker-change-hop-ms) CHANGE_HOP_MS="${2:?--speaker-change-hop-ms requires a value}"; shift 2 ;;
         --speaker-change-min-ms) CHANGE_MIN_MS="${2:?--speaker-change-min-ms requires a value}"; shift 2 ;;
@@ -198,6 +201,13 @@ for pair in "speaker_change_window_ms:$CHANGE_WINDOW_MS" "speaker_change_hop_ms:
     fi
     OPTIONAL_ARGS+=(-e "${pair%%:*}" "$value")
 done
+if [[ -n "$ENGLISH" ]]; then
+    if [[ ! "$ENGLISH" =~ ^(on|off)$ ]]; then
+        echo "Invalid --english: $ENGLISH (expected on or off)" >&2
+        exit 1
+    fi
+    OPTIONAL_ARGS+=(-e english "$ENGLISH")
+fi
 if [[ -n "$ASR_MODEL" ]]; then
     if [[ ! "$ASR_MODEL" =~ ^(e2e_ctc|e2e_rnnt)$ ]]; then
         echo "Invalid --asr-model: $ASR_MODEL (expected e2e_ctc or e2e_rnnt)" >&2

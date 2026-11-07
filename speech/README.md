@@ -5,7 +5,7 @@ ML-модуль приложения `private-onwin`: русская речь �
 - **Файл (рекомендуется): `SherpaVadTranscriber`** — готовый WAV через пайплайн streaming без пауз: АРУ → VAD → ASR по репликам → спикеры по всей записи. На наших замерах точнее и вдвое быстрее batch и не падает на монологе — [`docs/bench-vad-transcriber.md`](../docs/bench-vad-transcriber.md).
 - **Batch:** готовый WAV → диаризация pyannote → сегменты с текстом (`SherpaTranscriber`).
 - **Streaming (псевдостриминг):** поток PCM 16 кГц → VAD → распознавание каждой реплики → онлайн-кластеризация говорящих → в конце пересчёт спикеров по всем репликам.
-- Стек: GigaAM-v3 e2e RNN-T (ASR; e2e CTC — запасной вариант), speaker embedding ERes2Net (диаризация; CAM++ — запасной вариант), pyannote segmentation (только batch), Silero VAD, sherpa-onnx 1.13.0.
+- Стек: GigaAM-v3 e2e RNN-T (ASR; e2e CTC — запасной вариант), Parakeet TDT 110M (английские фразы, без выбора языка), speaker embedding ERes2Net (диаризация; CAM++ — запасной вариант), pyannote segmentation (только batch), Silero VAD, sherpa-onnx 1.13.0.
 - `minSdk 29`, `compileSdk 37`, Kotlin 2.4.21, JDK 17.
 
 Модуль отвечает за ML и чтение WAV. UI, Room, очередь, foreground-сервис, разрешения, декодирование и ресемплинг, хранение файлов и экспорт — на стороне приложения.
@@ -124,6 +124,7 @@ sealed interface StreamingEvent {
 | Поле | По умолчанию | Смысл |
 |---|---|---|
 | `numThreads: Int` | `4` | Потоки ASR и диаризации (VAD — всегда 1), `>= 1` |
+| `detectEnglish` | `true` | Английская речь без выбора языка: кусок, который GigaAM записала больше чем на 90 % латиницей, или ряд из ≥ 4 латинских слов внутри куска перераспознаётся Parakeet. Модель грузится при первой английской фразе; нет её файлов — только русский. На хосте: английский 69,9 → 5,6 % WER, смешанные RU+EN 17,5 → 7,0 %, русские без изменений — [`docs/bench-english.md`](../docs/bench-english.md) |
 | `asrModel` | `E2E_RNNT` | `E2E_RNNT` (GigaAM-v3 e2e RNN-T, по умолчанию) или `E2E_CTC` (прежняя модель; её файлы в APK необязательны). RNN-T точнее: WER синтетики 16,2 → 15,1 %, числа верно по значению 85 → 93 % — [`docs/bench-asr-rnnt.md`](../docs/bench-asr-rnnt.md) |
 | `embeddingModel` | `ERES2NET` | `ERES2NET` (`speaker_embedding_eres2net.onnx`) или `CAMPLUS` (`speaker_embedding_camplus.onnx`). CAM++ обучена на китайской речи и путает два женских голоса — [`docs/bench-eres2net.md`](../docs/bench-eres2net.md) |
 | `autoClusterThreshold` | `0.80f` | Distance threshold для batch-авторежима: **ниже → больше говорящих**. При заданном `expectedSpeakers` не используется |
@@ -249,7 +250,7 @@ try {
 - `release()` безопасен и во время стрима: он не трогает native-объекты, а запоминает запрос, и стрим освобождает модели в своём `finally`. После такого `release()` следующий `transcribeStream()` потребует нового `load()`.
 - `load()` сериализован с активной сессией: во время стрима он подождёт её конца. Для бесконечного микрофона это значит, что `load()` не вернётся, пока стрим не отменят: вызывайте `load()` до старта стрима.
 - Второй одновременный стрим не ждёт молча: он сразу получает `Failed(«Уже идёт другая streaming-сессия»)`.
-- `load()` поднимает ASR + VAD + embedding (2–3 с, ~450 МБ). Segmentation-модель в streaming в рантайме не используется, но `load()` всё равно проверяет наличие всех восьми обязательных файлов.
+- `load()` поднимает ASR + VAD + embedding (2–3 с, ~450 МБ). Segmentation-модель в streaming в рантайме не используется, но `load()` всё равно проверяет наличие всех восьми обязательных файлов (английские — отдельно, при первой английской фразе).
 - Batch и streaming одновременно — две копии моделей и ~2× память. Лучше последовательно.
 
 Настройка VAD:
@@ -267,7 +268,7 @@ SpeechConfig(
 
 ## Модели
 
-Восемь файлов, ~275 МиБ (288,8 МБ) в APK. В git не хранятся.
+Двенадцать файлов, ~406 МиБ (425,3 МБ) в APK. В git не хранятся.
 
 | Файл в `speech/src/main/assets/` | Размер, байт | Назначение |
 |---|---:|---|
@@ -279,6 +280,10 @@ SpeechConfig(
 | `models/speaker_embedding_eres2net.onnx` | 26 485 263 | speaker embedding ERes2Net (по умолчанию) |
 | `asr/segmentation.onnx` | 1 540 506 | pyannote segmentation |
 | `vad/silero_vad.onnx` | 643 854 | Silero VAD |
+| `models/parakeet_tdt_110m_en_encoder_int8.onnx` | 131 113 202 | английский ASR Parakeet TDT 110M, encoder |
+| `models/parakeet_tdt_110m_en_decoder_int8.onnx` | 3 955 863 | английский ASR, decoder |
+| `models/parakeet_tdt_110m_en_joiner_int8.onnx` | 1 411 403 | английский ASR, joiner |
+| `asr/parakeet_tdt_110m_en_tokens.txt` | 9 953 | токены английского ASR |
 
 Необязательные — только для `AsrModel.E2E_CTC`: `models/gigaam_v3_e2e_ctc_int8.onnx`
 (319 869 121) и `asr/gigaam_v3_e2e_ctc_tokens.txt` (2 262). Без них APK меньше на 305 МиБ.
@@ -349,11 +354,37 @@ rm -r rnnt.tar.bz2 "$r"
    `SpeechConfig(asrModel = AsrModel.E2E_CTC)`. Всё, что лежит в assets, попадает
    в APK, поэтому без неё APK меньше на 305 МиБ — удалите эти два файла.
 
+6. Parakeet TDT 110M (английская речь, `SpeechConfig.detectEnglish`) — публичный
+   архив sherpa-onnx (103 МиБ). Без неё приложение распознаёт только русский, без
+   ошибки; `verifyBundledModels` её требует.
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8.tar.bz2" -OutFile "parakeet.tar.bz2"
+tar -xjf parakeet.tar.bz2
+$p = "sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8"
+Copy-Item "$p\encoder.int8.onnx" "speech\src\main\assets\models\parakeet_tdt_110m_en_encoder_int8.onnx"
+Copy-Item "$p\decoder.int8.onnx" "speech\src\main\assets\models\parakeet_tdt_110m_en_decoder_int8.onnx"
+Copy-Item "$p\joiner.int8.onnx" "speech\src\main\assets\models\parakeet_tdt_110m_en_joiner_int8.onnx"
+Copy-Item "$p\tokens.txt" "speech\src\main\assets\asr\parakeet_tdt_110m_en_tokens.txt"
+Remove-Item -Recurse parakeet.tar.bz2, $p
+```
+
+```bash
+curl -L -o parakeet.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8.tar.bz2"
+tar -xjf parakeet.tar.bz2
+p=sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8
+cp "$p/encoder.int8.onnx" speech/src/main/assets/models/parakeet_tdt_110m_en_encoder_int8.onnx
+cp "$p/decoder.int8.onnx" speech/src/main/assets/models/parakeet_tdt_110m_en_decoder_int8.onnx
+cp "$p/joiner.int8.onnx" speech/src/main/assets/models/parakeet_tdt_110m_en_joiner_int8.onnx
+cp "$p/tokens.txt" speech/src/main/assets/asr/parakeet_tdt_110m_en_tokens.txt
+rm -r parakeet.tar.bz2 "$p"
+```
+
 SHA-256 архива — `00020e21641414106a335ab4e5d2bfe18d91cc8a383d645a718344411c1c937b`.
 Для CI автоматического скачивания нет: нужен либо закешированный artifact, либо
 секрет с токеном. Подробности — в корневом [`README.md`](../README.md#2-веса).
 
-`verifyBundledModels` проверяет наличие и SHA-256 всех восьми файлов (манифест — `speech/models.sha256`). В рантайме `load()` проверяет точные размеры через `AssetManager`; при несовпадении бросает `IllegalStateException` со списком отсутствующих файлов.
+`verifyBundledModels` проверяет наличие и SHA-256 всех двенадцати файлов (манифест — `speech/models.sha256`). В рантайме `load()` проверяет точные размеры через `AssetManager`; при несовпадении бросает `IllegalStateException` со списком отсутствующих файлов.
 
 `load()` проверяет весь набор в обоих режимах: batch не использует VAD, streaming — segmentation, но оба файла всё равно должны лежать в assets.
 
@@ -391,7 +422,7 @@ speech/src/main/java/com/example/speech/
 
 ## Ограничения
 
-- **Только русский язык** (GigaAM-v3). Смешанная речь и другие языки — вне поддержки.
+- **Русский и английский.** Английский распознаётся, только когда GigaAM пишет фразу латиницей: отдельные английские слова в русской фразе («давай этот deploy») остаются на GigaAM. Другие языки — вне поддержки.
 - **Только 16 кГц, моно, PCM16.** Batch принимает лишь канонический WAV: `RIFF/WAVE`, `fmt ` 16 байт на смещении 12, `data` сразу на смещении 36, без дополнительных чанков. Максимум 60 минут для batch и 12 часов для `SherpaVadTranscriber`.
 - Batch читает весь WAV в память: 60 минут — это ~230 МБ Java heap сверх native-памяти моделей. Для длинных записей — `SherpaVadTranscriber`: он читает файл кусками. Проверено на записи 76 минут.
 - Streaming не даёт промежуточный текст: только готовые реплики. Таймкоды — на уровне реплик (границы считаются по меткам времени слов GigaAM, сами слова наружу не отдаются).
@@ -533,7 +564,7 @@ job.cancelAndJoin()          // отменит коллектор; Flow заве
 - [ ] `settings.gradle.kts` содержит `:speech` и `speech/local-repo`.
 - [ ] `implementation(project(":speech"))` в `:app`.
 - [ ] `noCompress += listOf("onnx", "txt")` в `:app`.
-- [ ] `:speech:verifyBundledModels` — `OK (8 файлов)`.
+- [ ] `:speech:verifyBundledModels` — `OK (12 файлов)`.
 - [ ] `:app:assembleDebug` собирается, APK устанавливается на arm64-устройство.
 - [x] Hilt предоставляет один `SherpaVadTranscriber`, `FakeTranscriber` доступен в тестовых наборах.
 

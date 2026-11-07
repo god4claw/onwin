@@ -13,6 +13,10 @@ internal object BundledModels {
     const val ASR_RNNT_TOKENS = "asr/gigaam_v3_e2e_rnnt_tokens.txt"
     const val ASR_CTC = "models/gigaam_v3_e2e_ctc_int8.onnx"
     const val ASR_CTC_TOKENS = "asr/gigaam_v3_e2e_ctc_tokens.txt"
+    const val ASR_EN_ENCODER = "models/parakeet_tdt_110m_en_encoder_int8.onnx"
+    const val ASR_EN_DECODER = "models/parakeet_tdt_110m_en_decoder_int8.onnx"
+    const val ASR_EN_JOINER = "models/parakeet_tdt_110m_en_joiner_int8.onnx"
+    const val ASR_EN_TOKENS = "asr/parakeet_tdt_110m_en_tokens.txt"
     const val EMBEDDING_CAMPLUS = "models/speaker_embedding_camplus.onnx"
     const val EMBEDDING_ERES2NET = "models/speaker_embedding_eres2net.onnx"
     const val SEGMENTATION = "asr/segmentation.onnx"
@@ -40,6 +44,9 @@ internal object BundledModels {
                 "Положите их в speech/src/main/assets/."
         }
     }
+
+    /** Все файлы английской модели есть в APK (она необязательна). */
+    fun isEnglishPresent(context: Context): Boolean = ModelRegistry.english.all { isPresent(context, it) }
 
     fun isPresent(context: Context, model: ModelFile): Boolean =
         assetSize(context.assets, model.assetPath) == model.sizeBytes

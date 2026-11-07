@@ -86,6 +86,41 @@ internal object ModelRegistry {
         sha256 = "c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5",
     )
 
+    /**
+     * NVIDIA Parakeet TDT 110M (английский) из релиза sherpa-onnx `asr-models`:
+     * `sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8`. Необязательная:
+     * без неё `SpeechConfig.detectEnglish` ничего не делает.
+     */
+    val ASR_EN_ENCODER = ModelFile(
+        id = "asr_parakeet_en_encoder",
+        assetPath = BundledModels.ASR_EN_ENCODER,
+        sizeBytes = 131_113_202L,
+        sha256 = "0f35509ddeb9b39002fb077d979a9fe74f06eb0bc4dd5c34f512f82e5111d657",
+    )
+
+    val ASR_EN_DECODER = ModelFile(
+        id = "asr_parakeet_en_decoder",
+        assetPath = BundledModels.ASR_EN_DECODER,
+        sizeBytes = 3_955_863L,
+        sha256 = "f7c331c5504c2e593c76ed22b728e3f554af6c4a383dde862e719ced08b1da19",
+    )
+
+    val ASR_EN_JOINER = ModelFile(
+        id = "asr_parakeet_en_joiner",
+        assetPath = BundledModels.ASR_EN_JOINER,
+        sizeBytes = 1_411_403L,
+        sha256 = "bf7dff69e9f2cdbe9943d70da358f38b361c115ba0105bae7e908e0d6ec782f6",
+    )
+
+    val ASR_EN_TOKENS = ModelFile(
+        id = "asr_parakeet_en_tokens",
+        assetPath = BundledModels.ASR_EN_TOKENS,
+        sizeBytes = 9_953L,
+        sha256 = "450e56bd2f036fe5b6aa821865838cc5aa9d8b0106134ce9a9ba0664abe6cd10",
+    )
+
+    val english: List<ModelFile> = listOf(ASR_EN_ENCODER, ASR_EN_DECODER, ASR_EN_JOINER, ASR_EN_TOKENS)
+
     val required: List<ModelFile> = listOf(
         ASR_RNNT_ENCODER,
         ASR_RNNT_DECODER,

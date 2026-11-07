@@ -120,6 +120,7 @@ internal data class BenchmarkConfig(
     val reclusterThreshold: Float,
     val embeddingModel: String = "camplus",
     val asrModel: String = "e2e_rnnt",
+    val detectEnglish: Boolean = true,
 )
 
 internal data class BatchRun(
@@ -353,6 +354,7 @@ private fun BenchmarkConfig.toJson(): JSONObject = JSONObject().apply {
     put("reclusterThreshold", reclusterThreshold)
     put("embeddingModel", embeddingModel)
     put("asrModel", asrModel)
+    put("detectEnglish", detectEnglish)
     put(
         "agc",
         JSONObject().apply {

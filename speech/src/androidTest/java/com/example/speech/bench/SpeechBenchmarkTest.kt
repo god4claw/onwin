@@ -34,6 +34,16 @@ class SpeechBenchmarkTest {
     private val context = instrumentation.targetContext
     private val args = InstrumentationRegistry.getArguments()
 
+    /** Английский: `-e english on|off` (по умолчанию — как в SpeechConfig). */
+    private val detectEnglish: Boolean by lazy {
+        when (args.getString("english")?.trim()?.lowercase(Locale.US)) {
+            null, "" -> SpeechConfig().detectEnglish
+            "on" -> true
+            "off" -> false
+            else -> error("english должен быть on или off")
+        }
+    }
+
     /** Модель ASR: `-e asr_model e2e_ctc|e2e_rnnt` (по умолчанию — как в SpeechConfig). */
     private val asrModel: com.example.speech.api.AsrModel by lazy {
         when (args.getString("asr_model")?.trim()?.lowercase(Locale.US)) {
@@ -132,6 +142,7 @@ class SpeechBenchmarkTest {
             reclusterThreshold = reclusterThreshold,
             embeddingModel = embeddingModel.name.lowercase(Locale.US),
             asrModel = asrModel.name.lowercase(Locale.US),
+            detectEnglish = detectEnglish,
         )
 
         // vad — расшифровка файла через SherpaVadTranscriber, как её увидит приложение.
@@ -148,6 +159,7 @@ class SpeechBenchmarkTest {
                     speakerChangeHopMs = changeHopMs,
                     speakerChangeMinSegmentMs = changeMinMs,
                     asrModel = asrModel,
+                    detectEnglish = detectEnglish,
                     embeddingModel = embeddingModel,
                     vad = vad,
                     agc = agc,
@@ -249,6 +261,7 @@ class SpeechBenchmarkTest {
                     clusterPruneMinMs = pruneMinMs,
                     clusterPruneMinFraction = pruneMinFraction,
                     asrModel = asrModel,
+                    detectEnglish = detectEnglish,
                     embeddingModel = embeddingModel,
                 ),
             )
@@ -379,6 +392,7 @@ class SpeechBenchmarkTest {
                     speakerChangeHopMs = changeHopMs,
                     speakerChangeMinSegmentMs = changeMinMs,
                     asrModel = asrModel,
+                    detectEnglish = detectEnglish,
                     embeddingModel = embeddingModel,
                     vad = vad,
                     agc = agc,

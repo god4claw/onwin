@@ -23,7 +23,7 @@ cd private-onwin
 
 ## 2. Веса
 
-Веса (~290 МБ) не хранятся в git — их нужно скачать один раз.
+Веса (~430 МБ) не хранятся в git — их нужно скачать один раз.
 
 > **Репозиторий приватный — скачивание только вручную, через браузер.**
 > GitHub не поддерживает публичный доступ к отдельным файлам приватного
@@ -102,6 +102,32 @@ rm -r rnnt.tar.bz2 "$r"
    `SpeechConfig(asrModel = AsrModel.E2E_CTC)`. Всё, что лежит в assets, попадает
    в APK, поэтому без неё APK меньше на 305 МиБ — удалите эти два файла.
 
+6. Parakeet TDT 110M (английская речь, `SpeechConfig.detectEnglish`) — публичный
+   архив sherpa-onnx (103 МиБ). Без неё приложение распознаёт только русский, без
+   ошибки; `verifyBundledModels` её требует.
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8.tar.bz2" -OutFile "parakeet.tar.bz2"
+tar -xjf parakeet.tar.bz2
+$p = "sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8"
+Copy-Item "$p\encoder.int8.onnx" "speech\src\main\assets\models\parakeet_tdt_110m_en_encoder_int8.onnx"
+Copy-Item "$p\decoder.int8.onnx" "speech\src\main\assets\models\parakeet_tdt_110m_en_decoder_int8.onnx"
+Copy-Item "$p\joiner.int8.onnx" "speech\src\main\assets\models\parakeet_tdt_110m_en_joiner_int8.onnx"
+Copy-Item "$p\tokens.txt" "speech\src\main\assets\asr\parakeet_tdt_110m_en_tokens.txt"
+Remove-Item -Recurse parakeet.tar.bz2, $p
+```
+
+```bash
+curl -L -o parakeet.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8.tar.bz2"
+tar -xjf parakeet.tar.bz2
+p=sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8
+cp "$p/encoder.int8.onnx" speech/src/main/assets/models/parakeet_tdt_110m_en_encoder_int8.onnx
+cp "$p/decoder.int8.onnx" speech/src/main/assets/models/parakeet_tdt_110m_en_decoder_int8.onnx
+cp "$p/joiner.int8.onnx" speech/src/main/assets/models/parakeet_tdt_110m_en_joiner_int8.onnx
+cp "$p/tokens.txt" speech/src/main/assets/asr/parakeet_tdt_110m_en_tokens.txt
+rm -r parakeet.tar.bz2 "$p"
+```
+
 
 Проверка целостности архива:
 
@@ -115,7 +141,7 @@ rm -r rnnt.tar.bz2 "$r"
 > asset API. Простого «без токена» в CI не бывает — это ограничение GitHub,
 > а не репозитория.
 
-`verifyBundledModels` проверяет наличие и SHA-256 всех восьми файлов. Gradle
+`verifyBundledModels` проверяет наличие и SHA-256 всех двенадцати файлов. Gradle
 запускает эту проверку при сборке приложения, чтобы APK с отсутствующими или
 повреждёнными весами не собрался. Проверку также можно запустить отдельно командой
 `:speech:verifyBundledModels`.

@@ -65,6 +65,13 @@ enum class AsrModel {
 data class SpeechConfig(
     val numThreads: Int = 4,
     val asrModel: AsrModel = AsrModel.E2E_RNNT,
+    /**
+     * Английская речь без выбора языка: куски и фразы, которые GigaAM пишет в
+     * основном латиницей, перераспознаются английской моделью Parakeet TDT 110M.
+     * Модель грузится при первой английской фразе. Нет её файлов в APK — только
+     * русский, без ошибки.
+     */
+    val detectEnglish: Boolean = true,
     val embeddingModel: EmbeddingModel = EmbeddingModel.ERES2NET,
     val autoClusterThreshold: Float = 0.80f,
     val onlineClusterThreshold: Float = 0.45f,

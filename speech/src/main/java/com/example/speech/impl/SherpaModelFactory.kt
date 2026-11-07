@@ -30,6 +30,28 @@ internal object SherpaModelFactory {
         ),
     )
 
+    /** Английский Parakeet TDT 110M: 80 mel, NeMo transducer, greedy. */
+    fun createEnglishRecognizer(assetManager: AssetManager, config: SpeechConfig): OfflineRecognizer =
+        OfflineRecognizer(
+            assetManager = assetManager,
+            config = OfflineRecognizerConfig(
+                featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
+                modelConfig = OfflineModelConfig(
+                    transducer = OfflineTransducerModelConfig(
+                        encoder = BundledModels.ASR_EN_ENCODER,
+                        decoder = BundledModels.ASR_EN_DECODER,
+                        joiner = BundledModels.ASR_EN_JOINER,
+                    ),
+                    tokens = BundledModels.ASR_EN_TOKENS,
+                    numThreads = config.numThreads,
+                    debug = false,
+                    provider = "cpu",
+                    modelType = "nemo_transducer",
+                ),
+                decodingMethod = "greedy_search",
+            ),
+        )
+
     private fun modelConfig(config: SpeechConfig): OfflineModelConfig = when (config.asrModel) {
         AsrModel.E2E_CTC -> OfflineModelConfig(
             nemo = OfflineNemoEncDecCtcModelConfig(model = BundledModels.ASR_CTC),

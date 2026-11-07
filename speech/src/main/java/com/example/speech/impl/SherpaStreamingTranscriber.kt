@@ -68,6 +68,9 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
     private val sessionMutex = Mutex()
 
     @Volatile private var recognizer: OfflineRecognizer? = null
+    /** Английская модель: создаётся при первой английской фразе, живёт до release(). */
+    @Volatile private var englishRecognizer: OfflineRecognizer? = null
+    @Volatile private var englishPresent = false
     @Volatile private var vad: VadSegmenter? = null
     @Volatile private var embeddingExtractor: SpeakerEmbeddingExtractor? = null
     @Volatile private var loadedConfig: SpeechConfig? = null
@@ -147,6 +150,7 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             }
 
             recognizer = newRecognizer
+            englishPresent = BundledModels.isEnglishPresent(appContext)
             vad = newVad
             embeddingExtractor = newEmbedder
             loadedConfig = config
@@ -229,8 +233,20 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             val streamStartedAt = System.nanoTime()
 
             val asr = AsrRunner(recognizer, VadSegmenter.SAMPLE_RATE)
+            val english = if (config.detectEnglish && englishPresent) {
+                EnglishRouter(
+                    englishWords = { samples -> englishAsr(config).transcribeWords(samples) },
+                    sampleRate = VadSegmenter.SAMPLE_RATE,
+                    trace = trace,
+                )
+            } else {
+                null
+            }
             val processor = StreamingChunkProcessor(
-                transcribeWords = { samples -> asr.transcribeWords(samples) },
+                transcribeWords = { samples ->
+                    val words = asr.transcribeWords(samples)
+                    english?.route(samples, words) ?: words
+                },
                 embeddingOf = { samples -> extractEmbedding(embedder, samples) },
                 clusterer = clusterer,
                 splitter = splitter,
@@ -385,13 +401,26 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
         }
     }
 
+    /** Сессии идут по одной (sessionMutex), release() ждёт их конца — гонки за модель нет. */
+    @Synchronized
+    private fun englishAsr(config: SpeechConfig): AsrRunner {
+        val existing = englishRecognizer
+        val recognizer = existing ?: SherpaModelFactory.createEnglishRecognizer(
+            context.applicationContext.assets,
+            config,
+        ).also { englishRecognizer = it }
+        return AsrRunner(recognizer, VadSegmenter.SAMPLE_RATE)
+    }
+
     private fun releaseLocked() {
         runCatching { embeddingExtractor?.release() }
         runCatching { vad?.release() }
         runCatching { recognizer?.release() }
+        runCatching { englishRecognizer?.release() }
         embeddingExtractor = null
         vad = null
         recognizer = null
+        englishRecognizer = null
         loadedConfig = null
     }
 
