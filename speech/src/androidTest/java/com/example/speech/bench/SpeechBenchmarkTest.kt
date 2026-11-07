@@ -56,6 +56,12 @@ class SpeechBenchmarkTest {
             "speaker_change_threshold",
             defaults.speakerChangeThreshold,
         )
+        val embeddingModel = when (args.getString("embedding_model")?.trim()?.lowercase(Locale.US)) {
+            null, "" -> defaults.embeddingModel
+            "camplus" -> com.example.speech.api.EmbeddingModel.CAMPLUS
+            "eres2net" -> com.example.speech.api.EmbeddingModel.ERES2NET
+            else -> error("embedding_model должен быть camplus или eres2net")
+        }
         val changeWindowMs = positiveInt("speaker_change_window_ms", defaults.speakerChangeWindowMs)
         val changeHopMs = positiveInt("speaker_change_hop_ms", defaults.speakerChangeHopMs)
         val changeMinMs = nonNegativeInt("speaker_change_min_ms", defaults.speakerChangeMinSegmentMs)
@@ -114,6 +120,7 @@ class SpeechBenchmarkTest {
             vad = vad,
             agc = agc,
             reclusterThreshold = reclusterThreshold,
+            embeddingModel = embeddingModel.name.lowercase(Locale.US),
         )
 
         // vad — расшифровка файла через SherpaVadTranscriber, как её увидит приложение.
@@ -129,6 +136,7 @@ class SpeechBenchmarkTest {
                     speakerChangeWindowMs = changeWindowMs,
                     speakerChangeHopMs = changeHopMs,
                     speakerChangeMinSegmentMs = changeMinMs,
+                    embeddingModel = embeddingModel,
                     vad = vad,
                     agc = agc,
                     speakerReclusterThreshold = reclusterThreshold,
@@ -152,6 +160,7 @@ class SpeechBenchmarkTest {
                 autoClusterThreshold = autoThreshold,
                 pruneMinMs = pruneMinMs,
                 pruneMinFraction = pruneMinFraction,
+                embeddingModel = embeddingModel,
             )
         } else {
             null
@@ -175,6 +184,7 @@ class SpeechBenchmarkTest {
                 changeWindowMs = changeWindowMs,
                 changeHopMs = changeHopMs,
                 changeMinMs = changeMinMs,
+                embeddingModel = embeddingModel,
             )
         } else {
             null
@@ -215,6 +225,7 @@ class SpeechBenchmarkTest {
         autoClusterThreshold: Float,
         pruneMinMs: Int,
         pruneMinFraction: Float,
+        embeddingModel: com.example.speech.api.EmbeddingModel,
     ): BatchResult {
         val transcriber = SherpaTranscriber(context)
         val loadStart = SystemClock.elapsedRealtime()
@@ -225,6 +236,7 @@ class SpeechBenchmarkTest {
                     autoClusterThreshold = autoClusterThreshold,
                     clusterPruneMinMs = pruneMinMs,
                     clusterPruneMinFraction = pruneMinFraction,
+                    embeddingModel = embeddingModel,
                 ),
             )
             val modelLoadMs = SystemClock.elapsedRealtime() - loadStart
@@ -338,6 +350,7 @@ class SpeechBenchmarkTest {
         changeWindowMs: Int,
         changeHopMs: Int,
         changeMinMs: Int,
+        embeddingModel: com.example.speech.api.EmbeddingModel,
     ): StreamingResult {
         val transcriber = SherpaStreamingTranscriber(context)
         val loadStart = SystemClock.elapsedRealtime()
@@ -352,6 +365,7 @@ class SpeechBenchmarkTest {
                     speakerChangeWindowMs = changeWindowMs,
                     speakerChangeHopMs = changeHopMs,
                     speakerChangeMinSegmentMs = changeMinMs,
+                    embeddingModel = embeddingModel,
                     vad = vad,
                     agc = agc,
                     speakerReclusterThreshold = reclusterThreshold,

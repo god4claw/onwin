@@ -89,6 +89,7 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
 
             val appContext = context.applicationContext
             BundledModels.requirePresent(appContext)
+            BundledModels.requireEmbedding(appContext, config.embeddingModel)
             val assets = appContext.assets
             val embeddingAsset = BundledModels.embeddingFor(config.embeddingModel)
 

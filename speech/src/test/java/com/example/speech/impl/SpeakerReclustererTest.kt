@@ -107,6 +107,38 @@ class SpeakerReclustererTest {
     }
 
     @Test
+    fun `a speaker with a tiny share of the talk is merged into the most similar one`() {
+        // A и B — настоящие собеседники; C — «спикер» из эмоциональных реплик A:
+        // 3 с из 41 с речи (~7 %), длиннее 2,5 с — старое правило его не трогает.
+        val nearA = floatArrayOf(0.5f, 0.1f, 0f, 0f, 0.05f, 0f, 0.8f, 0.2f)
+        val records = listOf(
+            record(0, 10_000, A), record(10_200, 20_000, B), record(20_200, 21_700, nearA, noise = 0f),
+            record(21_900, 31_000, A), record(31_200, 40_000, B), record(40_200, 41_700, nearA, noise = 0f),
+        )
+
+        val plain = SpeakerReclusterer().relabel(records).map { it.speaker }
+        val shared = SpeakerReclusterer(minSpeakerShare = 0.08f).relabel(records).map { it.speaker }
+
+        assertEquals(3, plain.toSet().size)
+        assertEquals(listOf(0, 1, 0, 0, 1, 0), shared)
+    }
+
+    @Test
+    fun `minimum share keeps a real short-answer speaker above the share`() {
+        val records = listOf(
+            record(0, 5_000, A), record(5_200, 6_200, B, online = 0),
+            record(6_500, 11_000, A), record(11_200, 12_100, B, online = 0),
+            record(12_400, 18_000, A), record(18_200, 19_200, B, online = 0),
+            record(19_500, 24_000, A), record(24_300, 25_300, B, online = 0),
+        )
+
+        // B — ~16 % речи: выше порога 12 %, остаётся отдельным спикером.
+        val labels = SpeakerReclusterer(minSpeakerShare = 0.12f).relabel(records).map { it.speaker }
+
+        assertEquals(listOf(0, 1, 0, 1, 0, 1, 0, 1), labels)
+    }
+
+    @Test
     fun `merge threshold controls how eagerly clusters merge`() {
         val records = (0 until 8).map { i -> record(i * 3_000L, i * 3_000L + 2_500, A, noise = 0.35f) }
 

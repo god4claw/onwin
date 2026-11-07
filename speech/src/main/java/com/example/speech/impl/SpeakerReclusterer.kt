@@ -22,8 +22,12 @@ import kotlin.math.sqrt
  * 2. Маленький кластер (< [minClusterMs] речи) остаётся отдельным спикером,
  *    только если в нём ≥ [minClusterSegments] реплик и он не похож ни на кого
  *    (сходство < [keepSimilarity]); иначе вливается в самый похожий.
- * 3. Реплики без embedding (короче 0,5 с) получают метку ближайшей по времени.
- * 4. Номера — по первому появлению.
+ * 3. Спикер, на которого приходится меньше [minSpeakerShare] всей речи сессии,
+ *    вливается в самый похожий кластер. ERes2Net на эмоциональной речи дробит
+ *    одного человека на несколько кластеров; настоящий участник разговора
+ *    почти всегда говорит заметную долю времени.
+ * 4. Реплики без embedding (короче 0,5 с) получают метку ближайшей по времени.
+ * 5. Номера — по первому появлению.
  *
  * Если число участников известно (`expectedSpeakers`), слияние идёт до
  * ровно стольких кластеров, без порога и без правила маленьких кластеров.
@@ -37,11 +41,13 @@ internal class SpeakerReclusterer(
     private val minClusterMs: Long = 2_500L,
     private val keepSimilarity: Float = 0.40f,
     private val minClusterSegments: Int = 2,
+    private val minSpeakerShare: Float = 0f,
     private val maxItems: Int = 600,
 ) {
     init {
         require(mergeThreshold in 0f..1f) { "mergeThreshold должен быть в 0..1, получено $mergeThreshold" }
         require(maxItems >= 2) { "maxItems должен быть >= 2, получено $maxItems" }
+        require(minSpeakerShare in 0f..0.5f) { "minSpeakerShare должен быть в 0..0,5, получено $minSpeakerShare" }
     }
 
     fun relabel(records: List<SegmentRecord>, expectedSpeakers: Int? = null): List<Segment> {
@@ -61,6 +67,7 @@ internal class SpeakerReclusterer(
         } else {
             mergeWhileSimilar(clusters)
             absorbSmallClusters(clusters, records)
+            absorbMinorSpeakers(clusters, records)
         }
 
         val labelOf = HashMap<Int, Int>(records.size)
@@ -157,6 +164,20 @@ internal class SpeakerReclusterer(
         }
     }
 
+    /** Вливает кластеры с долей речи меньше [minSpeakerShare] в самый похожий. */
+    private fun absorbMinorSpeakers(clusters: MutableList<Cluster>, records: List<SegmentRecord>) {
+        if (minSpeakerShare <= 0f) return
+        fun durationMs(cluster: Cluster): Long = cluster.members.sumOf { records[it].segment.durationMs() }
+        val totalMs = clusters.sumOf { durationMs(it) }.coerceAtLeast(1L)
+        while (clusters.size > 1) {
+            val smallest = clusters.minBy { durationMs(it) }
+            if (durationMs(smallest) >= minSpeakerShare * totalMs) return
+            val nearest = clusters.filter { it !== smallest }.maxBy { cosine(smallest.sum, it.sum) }
+            addInto(nearest, smallest)
+            clusters.remove(smallest)
+        }
+    }
+
     private fun nearestInTime(records: List<SegmentRecord>, index: Int, candidates: List<Int>): Int {
         val center = records[index].segment.let { it.startMs + it.endMs }
         return candidates.minBy { other ->
@@ -194,7 +215,7 @@ internal class SpeakerReclusterer(
     private fun Segment.durationMs(): Long = (endMs - startMs).coerceAtLeast(0L)
 
     internal companion object {
-        const val DEFAULT_MERGE_THRESHOLD = 0.60f
+        const val DEFAULT_MERGE_THRESHOLD = 0.65f
         private const val MAX_WEIGHT_SECONDS = 8.0
     }
 }

@@ -33,11 +33,23 @@ internal object ModelRegistry {
         sha256 = "f682b514c05d947ee3fa91cd6ec6c5c7543479a128373fa29b1faedccd21fd11",
     )
 
-    val required: List<ModelFile> = listOf(ASR, EMBEDDING_CAMPLUS)
+    /**
+     * 3D-Speaker ERes2Net (VoxCeleb): `3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx`
+     * из релиза sherpa-onnx `speaker-recongition-models`. Модель по умолчанию.
+     */
+    val EMBEDDING_ERES2NET = ModelFile(
+        id = "embedding_eres2net",
+        assetPath = BundledModels.EMBEDDING_ERES2NET,
+        sizeBytes = 26_485_263L,
+        sha256 = "c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5",
+    )
+
+    val required: List<ModelFile> = listOf(ASR, EMBEDDING_CAMPLUS, EMBEDDING_ERES2NET)
 
     val totalBytes: Long = required.sumOf { it.sizeBytes }
 
     fun embeddingFor(model: EmbeddingModel): ModelFile = when (model) {
         EmbeddingModel.CAMPLUS -> EMBEDDING_CAMPLUS
+        EmbeddingModel.ERES2NET -> EMBEDDING_ERES2NET
     }
 }

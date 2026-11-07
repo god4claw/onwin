@@ -6,7 +6,7 @@ speech/src/main/java/com/example/speech/impl/SpeakerReclusterer.kt; keep them
 in sync.
 
 Usage:
-  python recluster_sim.py <dir with JSONs> --refs <dir with .rttm> [--threshold 0.6]
+  python recluster_sim.py <dir with JSONs> --refs <dir with .rttm> [--threshold 0.65] [--min-share 0.15]
   python recluster_sim.py <dir> --refs <dir> --grid      # sweep the threshold
 
 Prints speaker attribution error (spkErr, see stream_report.py) and speaker
@@ -27,7 +27,7 @@ from stream_report import speaker_error
 from summarize_bench import read_rttm, score as score_der
 
 
-def recluster(records, threshold=0.60, min_cluster_ms=2500, keep_similarity=0.40, min_segments=2):
+def recluster(records, threshold=0.65, min_cluster_ms=2500, keep_similarity=0.40, min_segments=2, min_share=0.15):
     with_emb = [i for i, r in enumerate(records) if r.get("embedding")]
     if not records:
         return []
@@ -77,6 +77,20 @@ def recluster(records, threshold=0.60, min_cluster_ms=2500, keep_similarity=0.40
             break
         clusters = [c for c in clusters if c is not absorbed]
 
+    # absorbMinorSpeakers: a speaker with less than min_share of the speech joins the most similar one.
+    if min_share > 0:
+        def total(c):
+            return sum(dur_ms(i) for i in c["members"])
+        whole = max(sum(total(c) for c in clusters), 1)
+        while len(clusters) > 1:
+            smallest = min(clusters, key=total)
+            if total(smallest) >= min_share * whole:
+                break
+            nearest = max((c for c in clusters if c is not smallest), key=lambda c: cos(smallest["sum"], c["sum"]))
+            nearest["sum"] = nearest["sum"] + smallest["sum"]
+            nearest["members"] += smallest["members"]
+            clusters = [c for c in clusters if c is not smallest]
+
     label = {i: k for k, c in enumerate(clusters) for i in c["members"]}
 
     def center(i):
@@ -99,17 +113,17 @@ def attribution(segments, ref):
 def load(results: Path, refs: Path):
     for path in sorted(results.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
-        run = (data.get("streaming") or {}).get("runs", [{}])[0]
+        run = (data.get("streaming") or data.get("vad") or {}).get("runs", [{}])[0]
         rttm = refs / f"{data.get('label', path.stem)}.rttm"
         if "segmentEmbeddings" in run and rttm.is_file():
             yield data["label"], run, read_rttm(rttm)
 
 
-def evaluate(files, threshold):
+def evaluate(files, threshold, min_share=0.15):
     errors, rows, ok = [], [], 0
     for label, run, ref in files:
         recs = run["segmentEmbeddings"]
-        labels = recluster(recs, threshold) if threshold is not None else None
+        labels = recluster(recs, threshold, min_share=min_share) if threshold is not None else None
         segs = ([(r["startMs"], r["endMs"], l) for r, l in zip(recs, labels)] if labels is not None
                 else [(s["startMs"], s["endMs"], s["speaker"]) for s in run["segmentList"]])
         err, ref_n, hyp_n = attribution(segs, ref)
@@ -124,22 +138,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("results", type=Path)
     parser.add_argument("--refs", required=True, type=Path)
-    parser.add_argument("--threshold", type=float, default=0.60)
+    parser.add_argument("--threshold", type=float, default=0.65)
+    parser.add_argument("--min-share", type=float, default=0.15)
     parser.add_argument("--grid", action="store_true")
     args = parser.parse_args()
 
     files = list(load(args.results, args.refs))
     if not files:
         raise SystemExit("no JSON with segmentEmbeddings (run the benchmark with --dump-embeddings)")
-    for name, threshold in (("as run", None), (f"simulated threshold={args.threshold}", args.threshold)):
-        rows, errors, ok = evaluate(files, threshold)
+    for name, threshold in (("as run", None), (f"simulated threshold={args.threshold} min-share={args.min_share}", args.threshold)):
+        rows, errors, ok = evaluate(files, threshold, args.min_share)
         print(f"{name}: spkErr mean {np.mean(errors) * 100:.1f}% median {np.median(errors) * 100:.1f}%, "
               f"speaker count right {ok}/{len(files)}")
         print("\n".join(rows))
     if args.grid:
         print("\nthreshold sweep:")
         for t in np.arange(0.40, 0.76, 0.05):
-            _, errors, ok = evaluate(files, float(t))
+            _, errors, ok = evaluate(files, float(t), args.min_share)
             print(f"  {t:.2f}: spkErr mean {np.mean(errors) * 100:5.1f}% median {np.median(errors) * 100:5.1f}%  count {ok}/{len(files)}")
 
 

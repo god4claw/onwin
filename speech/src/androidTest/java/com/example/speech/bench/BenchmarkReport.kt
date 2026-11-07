@@ -118,6 +118,7 @@ internal data class BenchmarkConfig(
     val agc: AgcConfig,
     /** Порог финальной перекластеризации streaming. */
     val reclusterThreshold: Float,
+    val embeddingModel: String = "camplus",
 )
 
 internal data class BatchRun(
@@ -347,6 +348,7 @@ private fun BenchmarkConfig.toJson(): JSONObject = JSONObject().apply {
         },
     )
     put("reclusterThreshold", reclusterThreshold)
+    put("embeddingModel", embeddingModel)
     put(
         "agc",
         JSONObject().apply {
@@ -522,7 +524,7 @@ internal fun BenchmarkReport.formatTable(): String {
             "vad=${config.vad.threshold}/${config.vad.minSilenceMs}ms/" +
             "${config.vad.minSpeechMs}ms/${config.vad.maxSpeechMs}ms " +
             "agc=${if (config.agc.enabled) "${config.agc.targetDbfs}dBFS/+${config.agc.maxGainDb}dB" else "off"} " +
-            "recluster=${config.reclusterThreshold}",
+            "recluster=${config.reclusterThreshold} embedding=${config.embeddingModel}",
     )
 
     listOfNotNull(batch?.let { "batch" to it }, vad?.let { "vad (file via VAD pipeline)" to it }).forEach { (title, result) ->

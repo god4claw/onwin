@@ -106,6 +106,7 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
 
             val appContext = context.applicationContext
             BundledModels.requirePresent(appContext)
+            BundledModels.requireEmbedding(appContext, config.embeddingModel)
             val assets = appContext.assets
 
             releaseLocked()
@@ -314,6 +315,7 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                     // по всем embedding-ам сессии разом.
                     val relabeled = SpeakerReclusterer(
                         mergeThreshold = config.speakerReclusterThreshold,
+                        minSpeakerShare = config.speakerMinShare,
                     ).relabel(records, expectedSpeakers)
                     // Соседние реплики одного чанка с одним финальным спикером —
                     // ложный разрез по смене голоса: склеиваем обратно.

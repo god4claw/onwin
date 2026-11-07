@@ -5,7 +5,7 @@
 Цель и прогресс проекта — в [`README.md`](README.md). Устройство движка — [`speech/README.md`](speech/README.md).
 
 - `:app` — Compose UI, Room и фоновая очередь обработки.
-- `:speech` — on-device движок: GigaAM-v3 (ASR), pyannote + CAM++ (диаризация), Silero VAD (псевдостриминг), sherpa-onnx.
+- `:speech` — on-device движок: GigaAM-v3 (ASR), ERes2Net speaker embeddings (диаризация), Silero VAD, sherpa-onnx.
 - Сеть в рантайме не нужна: веса читаются из APK через `AssetManager`.
 
 ## Требования
@@ -57,6 +57,22 @@ unzip -o speech-models-v1.zip -d speech/src/main/assets
 Архив содержит пять файлов моделей в подкаталогах `models/`, `asr/`, `vad/`
 (см. таблицу в [`speech/README.md`](speech/README.md#модели)).
 
+4. ERes2Net (speaker embedding по умолчанию) в архив `speech-models-v1` не входит —
+   скачайте её отдельно, ссылка публичная (релиз sherpa-onnx):
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx" -OutFile "speech/src/main/assets/models/speaker_embedding_eres2net.onnx"
+```
+
+```bash
+curl -L -o speech/src/main/assets/models/speaker_embedding_eres2net.onnx \
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx"
+```
+
+   SHA-256: `c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5`, 26 485 263 байт.
+   Без неё `verifyBundledModels` и `load()` падают со списком отсутствующих файлов.
+
+
 Проверка целостности архива:
 
 ```powershell
@@ -69,7 +85,7 @@ unzip -o speech-models-v1.zip -d speech/src/main/assets
 > asset API. Простого «без токена» в CI не бывает — это ограничение GitHub,
 > а не репозитория.
 
-`verifyBundledModels` проверяет наличие и SHA-256 всех пяти файлов. Запускайте его
+`verifyBundledModels` проверяет наличие и SHA-256 всех шести файлов. Запускайте его
 до сборки: без весов `:speech` соберётся, но упадёт в рантайме с
 `IllegalStateException: В APK отсутствуют модели`.
 

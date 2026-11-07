@@ -5,7 +5,7 @@ ML-модуль приложения `onwin`: русская речь → тек
 - **Файл (рекомендуется): `SherpaVadTranscriber`** — готовый WAV через пайплайн streaming без пауз: АРУ → VAD → ASR по репликам → спикеры по всей записи. На наших замерах точнее и вдвое быстрее batch и не падает на монологе — [`docs/bench-vad-transcriber.md`](../docs/bench-vad-transcriber.md).
 - **Batch:** готовый WAV → диаризация pyannote → сегменты с текстом (`SherpaTranscriber`).
 - **Streaming (псевдостриминг):** поток PCM 16 кГц → VAD → распознавание каждой реплики → онлайн-кластеризация говорящих → в конце пересчёт спикеров по всем репликам.
-- Стек: GigaAM-v3 e2e CTC (ASR), pyannote segmentation + CAM++ (диаризация), Silero VAD, sherpa-onnx 1.13.0.
+- Стек: GigaAM-v3 e2e CTC (ASR), speaker embedding ERes2Net (диаризация; CAM++ — запасной вариант), pyannote segmentation (только batch), Silero VAD, sherpa-onnx 1.13.0.
 - `minSdk 29`, `compileSdk 37`, Kotlin 2.4.21, JDK 17.
 
 Модуль отвечает за ML и чтение WAV. UI, Room, очередь, foreground-сервис, разрешения, декодирование и ресемплинг, хранение файлов и экспорт — на стороне приложения.
@@ -36,7 +36,7 @@ ML-модуль приложения `onwin`: русская речь → тек
 
 ```text
 WAV 16 кГц моно PCM16
-   → pyannote segmentation + CAM++ embeddings + FastClustering
+   → pyannote segmentation + speaker embeddings (ERes2Net) + FastClustering
    → сегменты с номерами говорящих
    → ASR GigaAM-v3 по каждому сегменту (куски до 45 с, разрез по тихой границе)
    → Flow<TranscriptionEvent>: прогресс, сегменты по мере готовности, Done
@@ -53,9 +53,9 @@ Flow<FloatArray> 16 кГц моно, [-1..1], любой размер чанка
    → Silero VAD (окно 512 сэмплов)
    → SpeechStarted при начале речи
    → по тишине (450 мс) или максимуму (25 с) VAD-чанк уходит в обработку
-   → смена говорящего внутри чанка (CAM++ по окнам) → разрез по тихому кадру
+   → смена говорящего внутри чанка (ERes2Net по окнам) → разрез по тихому кадру
    → ASR каждого куска с метками времени слов; границы реплики — по словам
-   → speaker embedding (CAM++) по участку со словами + онлайн-кластеризация
+   → speaker embedding (ERes2Net) по участку со словами + онлайн-кластеризация
    → Utterance с текстом, таймкодами и предварительным номером говорящего
    → после конца входного Flow: перекластеризация всех embedding-ов сессии,
      соседние куски одного чанка с одним спикером склеиваются
@@ -118,11 +118,12 @@ sealed interface StreamingEvent {
 | Поле | По умолчанию | Смысл |
 |---|---|---|
 | `numThreads: Int` | `4` | Потоки ASR и диаризации (VAD — всегда 1), `>= 1` |
-| `embeddingModel` | `CAMPLUS` | Единственный вариант: `speaker_embedding_camplus.onnx` |
+| `embeddingModel` | `ERES2NET` | `ERES2NET` (`speaker_embedding_eres2net.onnx`) или `CAMPLUS` (`speaker_embedding_camplus.onnx`). CAM++ обучена на китайской речи и путает два женских голоса — [`docs/bench-eres2net.md`](../docs/bench-eres2net.md) |
 | `autoClusterThreshold` | `0.80f` | Distance threshold для batch-авторежима: **ниже → больше говорящих**. При заданном `expectedSpeakers` не используется |
 | `onlineClusterThreshold` | `0.45f` | Косинусный порог streaming-кластеризации: **выше → больше говорящих**, `0..1` |
 | `maxOnlineSpeakers` | `20` | Потолок говорящих в стриме, `>= 1` |
-| `speakerReclusterThreshold` | `0.60f` | Streaming: порог финальной перекластеризации в `Done`, **выше → больше говорящих**, `0..1` |
+| `speakerReclusterThreshold` | `0.65f` | Streaming: порог финальной перекластеризации в `Done`, **выше → больше говорящих**, `0..1` |
+| `speakerMinShare` | `0.15f` | Streaming: спикер с долей речи меньше этой в `Done` вливается в самого похожего, `0..0.5`. Лишние кластеры на шуме — частая ошибка ERes2Net; цена — тихий участник группы, говорящий < 15 % времени |
 | `vad: VadConfig` | см. ниже | Только streaming |
 | `agc: AgcConfig` | см. ниже | АРУ перед VAD, только streaming |
 
@@ -241,7 +242,7 @@ try {
 - `release()` безопасен и во время стрима: он не трогает native-объекты, а запоминает запрос, и стрим освобождает модели в своём `finally`. После такого `release()` следующий `transcribeStream()` потребует нового `load()`.
 - `load()` сериализован с активной сессией: во время стрима он подождёт её конца. Для бесконечного микрофона это значит, что `load()` не вернётся, пока стрим не отменят: вызывайте `load()` до старта стрима.
 - Второй одновременный стрим не ждёт молча: он сразу получает `Failed(«Уже идёт другая streaming-сессия»)`.
-- `load()` поднимает ASR + VAD + embedding (2–3 с, ~450 МБ). Segmentation-модель в streaming в рантайме не используется, но `load()` всё равно проверяет наличие всех пяти файлов.
+- `load()` поднимает ASR + VAD + embedding (2–3 с, ~450 МБ). Segmentation-модель в streaming в рантайме не используется, но `load()` всё равно проверяет наличие всех шести файлов.
 - Batch и streaming одновременно — две копии моделей и ~2× память. Лучше последовательно.
 
 Настройка VAD:
@@ -259,12 +260,13 @@ SpeechConfig(
 
 ## Модели
 
-Пять файлов, ~334 МиБ (350,3 МБ) в APK. В git не хранятся.
+Шесть файлов, ~359 МиБ (376,8 МБ) в APK. В git не хранятся.
 
 | Файл в `speech/src/main/assets/` | Размер, байт | Назначение |
 |---|---:|---|
 | `models/gigaam_v3_e2e_ctc_int8.onnx` | 319 869 121 | ASR, русский |
-| `models/speaker_embedding_camplus.onnx` | 28 281 138 | speaker embedding |
+| `models/speaker_embedding_camplus.onnx` | 28 281 138 | speaker embedding CAM++ (запасной) |
+| `models/speaker_embedding_eres2net.onnx` | 26 485 263 | speaker embedding ERes2Net (по умолчанию) |
 | `asr/segmentation.onnx` | 1 540 506 | pyannote segmentation |
 | `asr/gigaam_v3_e2e_ctc_tokens.txt` | 2 262 | токены ASR |
 | `vad/silero_vad.onnx` | 643 854 | Silero VAD |
@@ -290,11 +292,26 @@ unzip -o speech-models-v1.zip -d speech/src/main/assets
 ./gradlew :speech:verifyBundledModels
 ```
 
+4. ERes2Net (speaker embedding по умолчанию) в архив `speech-models-v1` не входит —
+   скачайте её отдельно, ссылка публичная (релиз sherpa-onnx):
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx" -OutFile "speech/src/main/assets/models/speaker_embedding_eres2net.onnx"
+```
+
+```bash
+curl -L -o speech/src/main/assets/models/speaker_embedding_eres2net.onnx \
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx"
+```
+
+   SHA-256: `c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5`, 26 485 263 байт.
+   Без неё `verifyBundledModels` и `load()` падают со списком отсутствующих файлов.
+
 SHA-256 архива — `00020e21641414106a335ab4e5d2bfe18d91cc8a383d645a718344411c1c937b`.
 Для CI автоматического скачивания нет: нужен либо закешированный artifact, либо
 секрет с токеном. Подробности — в корневом [`README.md`](../README.md#2-веса).
 
-`verifyBundledModels` проверяет наличие и SHA-256 всех пяти файлов (манифест — `speech/models.sha256`). В рантайме `load()` проверяет точные размеры через `AssetManager`; при несовпадении бросает `IllegalStateException` со списком отсутствующих файлов.
+`verifyBundledModels` проверяет наличие и SHA-256 всех шести файлов (манифест — `speech/models.sha256`). В рантайме `load()` проверяет точные размеры через `AssetManager`; при несовпадении бросает `IllegalStateException` со списком отсутствующих файлов.
 
 `load()` проверяет весь набор в обоих режимах: batch не использует VAD, streaming — segmentation, но оба файла всё равно должны лежать в assets.
 
@@ -501,7 +518,7 @@ job.cancelAndJoin()          // отменит коллектор; Flow заве
 - [ ] `settings.gradle.kts` содержит `:speech` и `speech/local-repo`.
 - [ ] `implementation(project(":speech"))` в `:app`.
 - [ ] `noCompress += listOf("onnx", "txt")` в `:app`.
-- [ ] `:speech:verifyBundledModels` — `OK (5 файлов)`.
+- [ ] `:speech:verifyBundledModels` — `OK (6 файлов)`.
 - [ ] `:app:assembleDebug` собирается, APK устанавливается на arm64-устройство.
 - [ ] `AppContainer` создаёт `SherpaTranscriber`, `FakeTranscriber` остался для тестов.
 

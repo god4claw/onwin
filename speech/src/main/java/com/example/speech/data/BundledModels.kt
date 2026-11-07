@@ -8,6 +8,7 @@ import java.security.MessageDigest
 internal object BundledModels {
     const val ASR = "models/gigaam_v3_e2e_ctc_int8.onnx"
     const val EMBEDDING_CAMPLUS = "models/speaker_embedding_camplus.onnx"
+    const val EMBEDDING_ERES2NET = "models/speaker_embedding_eres2net.onnx"
     const val SEGMENTATION = "asr/segmentation.onnx"
     const val TOKENS = "asr/gigaam_v3_e2e_ctc_tokens.txt"
     const val VAD = "vad/silero_vad.onnx"
@@ -16,6 +17,15 @@ internal object BundledModels {
         ModelRegistry.embeddingFor(model).assetPath
 
     fun isPresent(context: Context): Boolean = missing(context).isEmpty()
+
+    /** Выбранная embedding-модель есть в APK (ERes2Net — необязательная). */
+    fun requireEmbedding(context: Context, model: EmbeddingModel) {
+        val file = ModelRegistry.embeddingFor(model)
+        check(isPresent(context, file)) {
+            "В APK нет embedding-модели ${file.assetPath} (${file.sizeBytes} байт). " +
+                "Положите её в speech/src/main/assets/models/."
+        }
+    }
 
     fun isPresent(context: Context, model: ModelFile): Boolean =
         assetSize(context.assets, model.assetPath) == model.sizeBytes

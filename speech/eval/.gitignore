@@ -9,3 +9,5 @@
 *.pieces
 __pycache__/
 *.pyc
+# Real-voice conversations and their download cache (make_dialogs.py).
+dialogs*/

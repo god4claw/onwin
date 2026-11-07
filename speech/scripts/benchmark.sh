@@ -29,6 +29,7 @@ Options:
   --agc-max-gain-db <x>      AGC gain ceiling, dB (default: AgcConfig, 24)
   --dump-embeddings          Write each streaming segment's speaker embedding to the JSON
   --recluster-threshold <x>  Streaming final speaker re-clustering threshold, 0..1 (default: SpeechConfig, 0.60)
+  --embedding-model <camplus|eres2net>  Speaker embedding model (default: camplus)
   --speaker-change-window-ms <n>  CAM++ window for in-chunk speaker change (default: SpeechConfig, 1600)
   --speaker-change-hop-ms <n>     Step between those windows (default: SpeechConfig, 800)
   --speaker-change-min-ms <n>     Minimum distance between change points (default: SpeechConfig, 1500)
@@ -62,6 +63,7 @@ AGC_MAX_GAIN_DB=""
 DUMP_EMBEDDINGS=0
 RECLUSTER_THRESHOLD=""
 CHANGE_WINDOW_MS=""
+EMBEDDING_MODEL=""
 CHANGE_HOP_MS=""
 CHANGE_MIN_MS=""
 SERIAL=""
@@ -91,6 +93,7 @@ while [[ $# -gt 0 ]]; do
         --agc-max-gain-db) AGC_MAX_GAIN_DB="${2:?--agc-max-gain-db requires a value}"; shift 2 ;;
         --dump-embeddings) DUMP_EMBEDDINGS=1; shift ;;
         --recluster-threshold) RECLUSTER_THRESHOLD="${2:?--recluster-threshold requires a value}"; shift 2 ;;
+        --embedding-model) EMBEDDING_MODEL="${2:?--embedding-model requires a value}"; shift 2 ;;
         --speaker-change-window-ms) CHANGE_WINDOW_MS="${2:?--speaker-change-window-ms requires a value}"; shift 2 ;;
         --speaker-change-hop-ms) CHANGE_HOP_MS="${2:?--speaker-change-hop-ms requires a value}"; shift 2 ;;
         --speaker-change-min-ms) CHANGE_MIN_MS="${2:?--speaker-change-min-ms requires a value}"; shift 2 ;;
@@ -192,6 +195,13 @@ for pair in "speaker_change_window_ms:$CHANGE_WINDOW_MS" "speaker_change_hop_ms:
     fi
     OPTIONAL_ARGS+=(-e "${pair%%:*}" "$value")
 done
+if [[ -n "$EMBEDDING_MODEL" ]]; then
+    if [[ ! "$EMBEDDING_MODEL" =~ ^(camplus|eres2net)$ ]]; then
+        echo "Invalid --embedding-model: $EMBEDDING_MODEL (expected camplus or eres2net)" >&2
+        exit 1
+    fi
+    OPTIONAL_ARGS+=(-e embedding_model "$EMBEDDING_MODEL")
+fi
 if [[ -n "$RECLUSTER_THRESHOLD" ]]; then
     if ! awk -v v="$RECLUSTER_THRESHOLD" 'BEGIN { exit !(v + 0 == v && v >= 0 && v <= 1) }'; then
         echo "Invalid --recluster-threshold: $RECLUSTER_THRESHOLD (expected 0..1)" >&2

@@ -30,15 +30,27 @@ interface Transcriber {
     fun release()
 }
 
+/**
+ * Модель speaker embedding для диаризации.
+ *
+ * - [CAMPLUS] — 3D-Speaker CAM++, обучена на китайской речи (zh-cn);
+ * - [ERES2NET] — 3D-Speaker ERes2Net на VoxCeleb (тысячи дикторов, много
+ *   языков), по умолчанию. На настоящих русских голосах различает похожие
+ *   голоса одного пола: AUC 0,93 против 0,80 у CAM++; ошибка атрибуции на
+ *   живых диалогах 23 → 4,5 % (docs/bench-eres2net.md). Пороги
+ *   `speakerReclusterThreshold`/`speakerMinShare` по умолчанию подобраны под
+ *   неё; для CAM++ были 0,60 / 0.
+ */
 enum class EmbeddingModel(
     val fileName: String
 ) {
-    CAMPLUS("speaker_embedding_camplus.onnx")
+    CAMPLUS("speaker_embedding_camplus.onnx"),
+    ERES2NET("speaker_embedding_eres2net.onnx")
 }
 
 data class SpeechConfig(
     val numThreads: Int = 4,
-    val embeddingModel: EmbeddingModel = EmbeddingModel.CAMPLUS,
+    val embeddingModel: EmbeddingModel = EmbeddingModel.ERES2NET,
     val autoClusterThreshold: Float = 0.80f,
     val onlineClusterThreshold: Float = 0.45f,
     val maxOnlineSpeakers: Int = 20,
@@ -50,7 +62,13 @@ data class SpeechConfig(
      * сессии в `Done` — выше → больше спикеров. Онлайн-метки в `Utterance`
      * предварительные, итоговые приходят в `Done`.
      */
-    val speakerReclusterThreshold: Float = 0.60f,
+    val speakerReclusterThreshold: Float = 0.65f,
+    /**
+     * Streaming: спикер, на которого в `Done` приходится меньше этой доли речи,
+     * вливается в самый похожий (0 — выключено). ERes2Net дробит эмоциональную
+     * речь одного человека на несколько кластеров.
+     */
+    val speakerMinShare: Float = 0.15f,
     /** Минимальная длительность кластера, который считается настоящим спикером (batch). */
     val clusterPruneMinMs: Int = 3_000,
     /** Минимальная доля речи для кластера (0..1); защищает от мелких кластеров. */
@@ -91,6 +109,9 @@ data class SpeechConfig(
         }
         require(speakerChangeWindowMs > 0) {
             "speakerChangeWindowMs должен быть > 0, получено $speakerChangeWindowMs"
+        }
+        require(speakerMinShare in 0f..0.5f) {
+            "speakerMinShare должен быть в 0..0,5, получено $speakerMinShare"
         }
         require(speakerReclusterThreshold in 0f..1f) {
             "speakerReclusterThreshold должен быть в 0..1, получено $speakerReclusterThreshold"
