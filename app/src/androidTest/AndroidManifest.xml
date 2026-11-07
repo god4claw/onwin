@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Провайдер тестового APK: у него свой процесс и UID, content:// идёт через Binder,
+             как у чужих приложений. Экспортирован, иначе приложение под тестом его не увидит. -->
+        <provider
+            android:name="com.example.onwin.data.audio.TestAudioProvider"
+            android:authorities="com.example.onwin.test.audio"
+            android:exported="true" />
+    </application>
+
+</manifest>
