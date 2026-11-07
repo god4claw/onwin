@@ -36,9 +36,8 @@ class FakeTranscriber(
     private val loadDelayMs: Long = 1_000,
     private val diarizationMs: Long = 2_000,
     private val realtimeFactor: Double = 0.1,
-    private val failAfterSegments: Int? = null,
+    private val failAfterSegments: Int? = null
 ) : Transcriber {
-
     @Volatile
     private var loadedConfig: SpeechConfig? = null
     private val busy = AtomicBoolean(false)
@@ -51,7 +50,7 @@ class FakeTranscriber(
 
     override fun transcribe(
         wav: File,
-        @Suppress("UNUSED_PARAMETER") expectedSpeakers: Int?,
+        @Suppress("UNUSED_PARAMETER") expectedSpeakers: Int?
     ): Flow<TranscriptionEvent> = flow {
         check(loadedConfig != null) { "load() must be called before transcribe()" }
         check(busy.compareAndSet(false, true)) { "Another transcription is running" }
@@ -98,7 +97,7 @@ class FakeTranscriber(
             "Хорошо, расскажите коротко, что получилось.",
             "Мы закончили импорт и сейчас проверяем распознавание.",
             "Есть вопросы по срокам?",
-            "Думаю, к пятнице успеем всё доделать.",
+            "Думаю, к пятнице успеем всё доделать."
         )
 
         /** Длительность канонического WAV 16 кГц моно PCM16 по размеру чанка `data`. */

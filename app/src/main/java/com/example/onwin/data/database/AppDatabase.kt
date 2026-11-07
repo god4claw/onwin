@@ -13,11 +13,10 @@ import com.example.onwin.data.database.entity.SpeakerNameEntity
 @Database(
     entities = [SessionEntity::class, SegmentEntity::class, SpeakerNameEntity::class],
     version = 1,
-    exportSchema = true,
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
-
     /** DAO сессий. */
     abstract fun sessionDao(): SessionDao
 

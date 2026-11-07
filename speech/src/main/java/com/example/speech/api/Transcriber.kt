@@ -13,7 +13,10 @@ interface Transcriber {
      *   участников. При `1` диаризация пропускается целиком: весь файл считается
      *   одной репликой одного говорящего, и batch работает в разы быстрее.
      */
-    fun transcribe(wav: File, expectedSpeakers: Int?): Flow<TranscriptionEvent>
+    fun transcribe(
+        wav: File,
+        expectedSpeakers: Int?
+    ): Flow<TranscriptionEvent>
 
     /** То же без подсказки о числе участников (авторежим). */
     fun transcribe(wav: File): Flow<TranscriptionEvent> = transcribe(wav, null)
@@ -27,8 +30,10 @@ interface Transcriber {
     fun release()
 }
 
-enum class EmbeddingModel(val fileName: String) {
-    CAMPLUS("speaker_embedding_camplus.onnx"),
+enum class EmbeddingModel(
+    val fileName: String
+) {
+    CAMPLUS("speaker_embedding_camplus.onnx")
 }
 
 data class SpeechConfig(
@@ -55,7 +60,7 @@ data class SpeechConfig(
     /** Длина окна для CAM++ при поиске смены говорящего. */
     val speakerChangeWindowMs: Int = 1_600,
     /** Минимальная длина куска после разреза по смене говорящего. */
-    val speakerChangeMinSegmentMs: Int = 1_500,
+    val speakerChangeMinSegmentMs: Int = 1_500
 ) {
     init {
         require(numThreads >= 1) {
@@ -95,14 +100,23 @@ data class Segment(
     val speaker: Int,
     val startMs: Long,
     val endMs: Long,
-    val text: String,
+    val text: String
 )
 
 enum class Stage { DIARIZATION, RECOGNITION }
 
 sealed interface TranscriptionEvent {
-    data class Progress(val stage: Stage, val fraction: Float) : TranscriptionEvent
-    data class SegmentReady(val segment: Segment) : TranscriptionEvent
-    data class Done(val segments: List<Segment>) : TranscriptionEvent
-    data class Failed(val cause: Throwable) : TranscriptionEvent
+    data class Progress(
+        val stage: Stage,
+        val fraction: Float
+    ) : TranscriptionEvent
+    data class SegmentReady(
+        val segment: Segment
+    ) : TranscriptionEvent
+    data class Done(
+        val segments: List<Segment>
+    ) : TranscriptionEvent
+    data class Failed(
+        val cause: Throwable
+    ) : TranscriptionEvent
 }

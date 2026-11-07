@@ -83,7 +83,7 @@ tasks.register("verifyBundledModels") {
                         logger.error(
                             "SHA-256 не совпал: ${file.path}\n" +
                                     "  ожидался: $expected\n" +
-                                    "  получен:  $actual",
+                                    "  получен:  $actual"
                         )
                         failures++
                     }
@@ -93,7 +93,7 @@ tasks.register("verifyBundledModels") {
         if (failures > 0) {
             throw GradleException(
                 "Не хватает $failures файлов моделей. Скачайте speech-models-v1.zip " +
-                        "из GitHub Releases и распакуйте в speech/src/main/assets/.",
+                        "из GitHub Releases и распакуйте в speech/src/main/assets/."
             )
         }
         logger.lifecycle("Bundled models: OK ($checked файлов)")

@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.StateFlow
  * Статусы и сегменты пишутся в БД, живой прогресс — только в [state].
  */
 interface ProcessingController {
-
     /** Начинает запись из действия пользователя; `null`, если контроллер занят. */
     fun startRecording(): String?
 
@@ -62,7 +61,7 @@ data class ProcessingState(
     val running: RunningJob? = null,
     val queuedCount: Int = 0,
     val recording: RecordingState? = null,
-    val busy: Boolean = false,
+    val busy: Boolean = false
 )
 
 /**
@@ -77,7 +76,7 @@ data class RunningJob(
     val sessionId: String,
     val title: String,
     val stage: ProcessingStage,
-    val fraction: Float?,
+    val fraction: Float?
 )
 
 /** Этап обработки для UI. */
@@ -92,7 +91,7 @@ enum class ProcessingStage {
     DIARIZATION,
 
     /** Распознавание речи. */
-    RECOGNITION,
+    RECOGNITION
 }
 
 /** Живые данные записи не пишутся в Room на каждом тике. */
@@ -100,6 +99,6 @@ data class RecordingState(
     val sessionId: String,
     val title: String,
     val phase: RecordingPhase = RecordingPhase.STARTING,
-    val elapsedMs: Long = 0,
+    val elapsedMs: Long = 0
 )
 enum class RecordingPhase { STARTING, RECORDING, STOPPING }

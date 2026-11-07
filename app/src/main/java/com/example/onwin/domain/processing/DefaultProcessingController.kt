@@ -4,12 +4,6 @@ import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
-import java.io.File
-import java.time.Clock
-import java.util.Locale
-import java.util.UUID
-import kotlin.time.Duration
-import kotlin.time.TimeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -31,9 +25,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.IOException
 import java.text.DateFormat
+import java.time.Clock
 import java.util.Date
+import java.util.Locale
+import java.util.UUID
+import kotlin.time.Duration
+import kotlin.time.TimeSource
 
 /**
  * [ProcessingController] с очередью в памяти и статусами в [SessionRepository].
@@ -68,11 +68,10 @@ class DefaultProcessingController(
     private val clock: Clock = Clock.systemUTC(),
     private val log: (String) -> Unit = {},
     private val microphone: MicrophoneRecorder? = null,
-    private val recordingTitle: (Long) -> String = { DateFormat.getDateTimeInstance().format(Date(it)) },
+    private val recordingTitle: (Long) -> String = { DateFormat.getDateTimeInstance().format(Date(it)) }
 ) : ProcessingController {
-
     private val scope = CoroutineScope(
-        SupervisorJob() + dispatcher + CoroutineExceptionHandler { _, e -> log("Unexpected error: $e") },
+        SupervisorJob() + dispatcher + CoroutineExceptionHandler { _, e -> log("Unexpected error: $e") }
     )
 
     private val lock = Any()
@@ -103,9 +102,14 @@ class DefaultProcessingController(
             recovery.join()
             repository.create(
                 Session(
-                    id = id, title = title, source = SessionSource.MIC,
-                    originalName = "$id.wav", sourceUri = null,
-                    createdAt = createdAt, updatedAt = createdAt, status = SessionStatus.RECORDING,
+                    id = id,
+                    title = title,
+                    source = SessionSource.MIC,
+                    originalName = "$id.wav",
+                    sourceUri = null,
+                    createdAt = createdAt,
+                    updatedAt = createdAt,
+                    status = SessionStatus.RECORDING
                 )
             )
             true
@@ -151,8 +155,8 @@ class DefaultProcessingController(
                     sourceUri = source,
                     createdAt = createdAt,
                     updatedAt = createdAt,
-                    status = SessionStatus.QUEUED,
-                ),
+                    status = SessionStatus.QUEUED
+                )
             )
             true
         }
@@ -164,8 +168,10 @@ class DefaultProcessingController(
         val prepared = scope.async {
             recovery.join()
             val session = repository.get(sessionId)
-            if (session == null || !session.canRetry || (session.source == SessionSource.MIC &&
-                    session.wavFileName?.let(repository::wavFile)?.let { it.isFile && it.length() > WAV_HEADER_BYTES } != true)) {
+            val hasWav = session?.wavFileName
+                ?.let(repository::wavFile)
+                ?.let { it.isFile && it.length() > WAV_HEADER_BYTES } == true
+            if (session == null || !session.canRetry || (session.source == SessionSource.MIC && !hasWav)) {
                 log("Retry of $sessionId ignored: status ${session?.status}")
                 return@async false
             }
@@ -213,7 +219,9 @@ class DefaultProcessingController(
             current?.requestStop(StopRequest(SessionStatus.FAILED, errorCode))
             queue.toList().also {
                 queue.clear()
-                if (it.any { queued -> queued.recordingStop != null }) _state.update { state -> state.copy(recording = null) }
+                if (it.any { queued -> queued.recordingStop != null }) {
+                    _state.update { state -> state.copy(recording = null) }
+                }
                 publishQueueSize()
             }
         }
@@ -230,8 +238,11 @@ class DefaultProcessingController(
     private fun submit(job: QueuedJob) {
         val refusal = synchronized(lock) {
             try {
-                if (job.recordingStop != null) foreground.startMicrophone(job.sessionId)
-                else foreground.start(job.sessionId)
+                if (job.recordingStop != null) {
+                    foreground.startMicrophone(job.sessionId)
+                } else {
+                    foreground.start(job.sessionId)
+                }
             } catch (e: ForegroundStartException) {
                 return@synchronized e
             }
@@ -252,7 +263,7 @@ class DefaultProcessingController(
                     job.sessionId,
                     SessionStatus.FAILED,
                     ErrorCode.FOREGROUND_NOT_ALLOWED,
-                    refusal.cause.toString(),
+                    refusal.cause.toString()
                 )
             }
         }
@@ -353,7 +364,10 @@ class DefaultProcessingController(
         }
     }
 
-    private suspend fun process(active: ActiveJob, batch: Batch) {
+    private suspend fun process(
+        active: ActiveJob,
+        batch: Batch
+    ) {
         val id = active.sessionId
         if (!active.queued.awaitPrepared()) return
         val session = repository.get(id) ?: return
@@ -412,7 +426,11 @@ class DefaultProcessingController(
     }
 
     /** Существующий WAV (повтор) или новый из исходника. */
-    private suspend fun obtainWav(active: ActiveJob, session: Session, metrics: JobMetrics): File {
+    private suspend fun obtainWav(
+        active: ActiveJob,
+        session: Session,
+        metrics: JobMetrics
+    ): File {
         val existing = session.wavFileName?.let(repository::wavFile)
         if (existing != null) {
             if (session.durationMs != null && existing.isFile && existing.length() > WAV_HEADER_BYTES) {
@@ -443,7 +461,12 @@ class DefaultProcessingController(
         return result.file
     }
 
-    private suspend fun transcribe(active: ActiveJob, batch: Batch, wav: File, metrics: JobMetrics) {
+    private suspend fun transcribe(
+        active: ActiveJob,
+        batch: Batch,
+        wav: File,
+        metrics: JobMetrics
+    ) {
         val id = active.sessionId
         repository.updateStatus(id, SessionStatus.TRANSCRIBING)
         try {
@@ -482,14 +505,12 @@ class DefaultProcessingController(
         }
     }
 
-    private fun report(active: ActiveJob, stage: ProcessingStage, fraction: Float?) {
-        _state.update { it.copy(running = RunningJob(
-            active.sessionId,
-            active.title,
-            stage,
-            fraction
-        )
-        ) }
+    private fun report(
+        active: ActiveJob,
+        stage: ProcessingStage,
+        fraction: Float?
+    ) {
+        _state.update { it.copy(running = RunningJob(active.sessionId, active.title, stage, fraction)) }
     }
 
     /** Вызывать под lock. */
@@ -521,12 +542,15 @@ class DefaultProcessingController(
 
     /** Задание в очереди; [prepared] — строка в БД готова (`false` — обрабатывать нечего). */
     private class QueuedJob(
-        val sessionId: String, val prepared: Deferred<Boolean>,
-        val recordingStop: CompletableDeferred<Unit>? = null,
+        val sessionId: String,
+        val prepared: Deferred<Boolean>,
+        val recordingStop: CompletableDeferred<Unit>? = null
     )
 
     /** Задание в работе. Поля, кроме [stopRequest], пишет корутина задания, читает работник после `join`. */
-    private class ActiveJob(val queued: QueuedJob) {
+    private class ActiveJob(
+        val queued: QueuedJob
+    ) {
         val sessionId: String get() = queued.sessionId
         lateinit var job: Job
         var title: String = ""
@@ -540,7 +564,10 @@ class DefaultProcessingController(
         }
     }
 
-    private data class StopRequest(val status: SessionStatus, val errorCode: ErrorCode? = null)
+    private data class StopRequest(
+        val status: SessionStatus,
+        val errorCode: ErrorCode? = null
+    )
 
     /** Состояние моделей в пределах одной пачки заданий. */
     private class Batch {
@@ -550,7 +577,10 @@ class DefaultProcessingController(
         var needsRelease = true
     }
 
-    private class StepFailure(val code: ErrorCode, override val cause: Throwable) : Exception(cause)
+    private class StepFailure(
+        val code: ErrorCode,
+        override val cause: Throwable
+    ) : Exception(cause)
 
     private class JobMetrics {
         private val started = TimeSource.Monotonic.markNow()
@@ -568,7 +598,7 @@ class DefaultProcessingController(
                     "RTF total=%.3f, RTF transcription=%.3f",
                 id, audioMs, conversion?.inWholeMilliseconds?.let { "$it ms" } ?: "reused",
                 load?.inWholeMilliseconds?.let { "$it ms" } ?: "cached",
-                transcriptionMs, totalMs, totalMs.toDouble() / audioMs, transcriptionMs.toDouble() / audioMs,
+                transcriptionMs, totalMs, totalMs.toDouble() / audioMs, transcriptionMs.toDouble() / audioMs
             )
         }
     }

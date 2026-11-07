@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.map
 /** Доступ к сессиям, сегментам и именам спикеров. */
 @Dao
 abstract class SessionDao {
-
     /** Все сессии, новые сверху, со счётчиками сегментов и спикеров. */
     @Query(
         """
@@ -27,7 +26,7 @@ abstract class SessionDao {
             (SELECT COUNT(DISTINCT g.speaker) FROM segments g WHERE g.sessionId = s.id) AS speakerCount
         FROM sessions s
         ORDER BY s.createdAt DESC
-        """,
+        """
     )
     abstract fun observeSessions(): Flow<List<SessionListRow>>
 
@@ -49,7 +48,11 @@ abstract class SessionDao {
     abstract suspend fun insertSession(session: SessionEntity)
 
     @Query("UPDATE sessions SET title = :title, updatedAt = :updatedAt WHERE id = :id")
-    abstract suspend fun rename(id: String, title: String, updatedAt: Long): Int
+    abstract suspend fun rename(
+        id: String,
+        title: String,
+        updatedAt: Long
+    ): Int
 
     /** Добавляет один сегмент; повтор `(sessionId, index)` — ошибка. */
     @Insert
@@ -57,7 +60,10 @@ abstract class SessionDao {
 
     /** Заменяет все сегменты сессии на [segments] одной транзакцией. */
     @Transaction
-    open suspend fun replaceSegments(sessionId: String, segments: List<SegmentEntity>) {
+    open suspend fun replaceSegments(
+        sessionId: String,
+        segments: List<SegmentEntity>
+    ) {
         clearSegments(sessionId)
         insertSegments(segments)
     }
@@ -75,19 +81,30 @@ abstract class SessionDao {
         UPDATE sessions SET status = :status, errorCode = :errorCode, errorMessage = :errorMessage,
             updatedAt = :updatedAt
         WHERE id = :id
-        """,
+        """
     )
     abstract suspend fun updateStatus(
         id: String,
         status: SessionStatus,
         errorCode: ErrorCode?,
         errorMessage: String?,
-        updatedAt: Long,
+        updatedAt: Long
     )
 
     /** Записывает (или стирает, если `null`) имя WAV и длительность. */
-    @Query("UPDATE sessions SET wavFileName = :wavFileName, durationMs = :durationMs, updatedAt = :updatedAt WHERE id = :id")
-    abstract suspend fun setWav(id: String, wavFileName: String?, durationMs: Long?, updatedAt: Long)
+    @Query(
+        """
+        UPDATE sessions SET wavFileName = :wavFileName, durationMs = :durationMs,
+            updatedAt = :updatedAt
+        WHERE id = :id
+        """
+    )
+    abstract suspend fun setWav(
+        id: String,
+        wavFileName: String?,
+        durationMs: Long?,
+        updatedAt: Long
+    )
 
     /**
      * Переводит все сессии в статусах [from] в `FAILED` с кодом [errorCode].
@@ -98,13 +115,13 @@ abstract class SessionDao {
         """
         UPDATE sessions SET status = :failed, errorCode = :errorCode, errorMessage = NULL, updatedAt = :updatedAt
         WHERE status IN (:from)
-        """,
+        """
     )
     protected abstract suspend fun failAll(
         from: List<SessionStatus>,
         failed: SessionStatus,
         errorCode: ErrorCode,
-        updatedAt: Long,
+        updatedAt: Long
     ): Int
 
     /**
@@ -112,7 +129,10 @@ abstract class SessionDao {
      *
      * @return сколько сессий изменено.
      */
-    suspend fun failUnfinished(errorCode: ErrorCode, updatedAt: Long): Int =
+    suspend fun failUnfinished(
+        errorCode: ErrorCode,
+        updatedAt: Long
+    ): Int =
         failAll(SessionStatus.UNFINISHED, SessionStatus.FAILED, errorCode, updatedAt)
 
     /** Имена WAV, на которые ссылаются сессии. */
@@ -129,5 +149,8 @@ abstract class SessionDao {
 
     /** Убирает имя спикера, в UI вернётся «Спикер N». */
     @Query("DELETE FROM speaker_names WHERE sessionId = :sessionId AND speaker = :speaker")
-    abstract suspend fun deleteSpeakerName(sessionId: String, speaker: Int)
+    abstract suspend fun deleteSpeakerName(
+        sessionId: String,
+        speaker: Int
+    )
 }

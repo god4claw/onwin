@@ -28,7 +28,7 @@ data class Session(
     val durationMs: Long? = null,
     val status: SessionStatus,
     val errorCode: ErrorCode? = null,
-    val errorMessage: String? = null,
+    val errorMessage: String? = null
 ) {
     /** Запись с микрофона нельзя повторить без сохранённого WAV. */
     val canRetry: Boolean

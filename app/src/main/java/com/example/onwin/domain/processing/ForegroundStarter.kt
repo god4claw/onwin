@@ -2,7 +2,6 @@ package com.example.onwin.domain.processing
 
 /** Запуск и остановка foreground-сервиса обработки. */
 interface ForegroundStarter {
-
     /**
      * Запускает сервис (или будит уже запущенный). Вызывать синхронно из действия пользователя.
      *
@@ -25,4 +24,6 @@ interface ForegroundStarter {
 }
 
 /** Система не разрешила запустить foreground-сервис (например, приложение уже в фоне). */
-class ForegroundStartException(cause: Throwable) : Exception("Foreground service start not allowed: $cause", cause)
+class ForegroundStartException(
+    cause: Throwable
+) : Exception("Foreground service start not allowed: $cause", cause)

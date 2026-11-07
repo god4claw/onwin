@@ -46,7 +46,7 @@ enum class SessionSource {
     IMPORT,
 
     /** Запись с микрофона. */
-    MIC,
+    MIC
 }
 
 /** Причина ошибки сессии. Хранится в БД по имени; текст для пользователя подбирает UI. */
@@ -83,5 +83,5 @@ enum class ErrorCode {
     TRANSCRIPTION_FAILED,
 
     /** Всё остальное. */
-    UNKNOWN,
+    UNKNOWN
 }

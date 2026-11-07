@@ -11,10 +11,18 @@ interface StreamingTranscriber {
 }
 
 sealed interface StreamingEvent {
-    data class SpeechStarted(val startMs: Long) : StreamingEvent
-    data class Utterance(val segment: Segment) : StreamingEvent
-    data class Done(val segments: List<Segment>) : StreamingEvent
-    data class Failed(val cause: Throwable) : StreamingEvent
+    data class SpeechStarted(
+        val startMs: Long
+    ) : StreamingEvent
+    data class Utterance(
+        val segment: Segment
+    ) : StreamingEvent
+    data class Done(
+        val segments: List<Segment>
+    ) : StreamingEvent
+    data class Failed(
+        val cause: Throwable
+    ) : StreamingEvent
 }
 
 /**
@@ -32,7 +40,7 @@ sealed interface StreamingEvent {
 data class AgcConfig(
     val enabled: Boolean = true,
     val targetDbfs: Float = -20f,
-    val maxGainDb: Float = 24f,
+    val maxGainDb: Float = 24f
 ) {
     init {
         require(targetDbfs in -40f..-3f) { "targetDbfs должен быть в -40..-3, получено $targetDbfs" }
@@ -44,7 +52,7 @@ data class VadConfig(
     val threshold: Float = 0.5f,
     val minSilenceMs: Int = 450,
     val minSpeechMs: Int = 250,
-    val maxSpeechMs: Int = 25_000,
+    val maxSpeechMs: Int = 25_000
 ) {
     init {
         require(threshold in 0f..1f) { "VAD threshold должен быть в 0..1, получено $threshold" }

@@ -8,18 +8,19 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import com.example.onwin.domain.repository.WelcomeRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.first
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.flow.first
 
 @Singleton
 class WelcomePreferences internal constructor(
     private val store: DataStore<Preferences>
 ) : WelcomeRepository {
-
     @Inject
-    constructor(@ApplicationContext context: Context) : this(
+    constructor(
+        @ApplicationContext context: Context
+    ) : this(
         PreferenceDataStoreFactory.create {
             // Удаление приложения или очистка данных сбрасывают приветствие.
             File(context.noBackupFilesDir, "welcome.preferences_pb")

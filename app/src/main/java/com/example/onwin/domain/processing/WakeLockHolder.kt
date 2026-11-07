@@ -5,7 +5,6 @@ package com.example.onwin.domain.processing
  * но при выключенном экране CPU без wake lock засыпает.
  */
 interface WakeLockHolder {
-
     /** Берёт wake lock; повторный вызов продлевает таймаут. */
     fun acquire()
 

@@ -8,7 +8,6 @@ import java.io.File
  * Источник — строка URI, чтобы контроллер тестировался на JVM без `android.net.Uri`.
  */
 interface AudioToWav {
-
     /** Имя файла для показа; `null`, если провайдер его не сообщил. */
     suspend fun displayName(source: String): String?
 
@@ -24,11 +23,20 @@ interface AudioToWav {
      * @param onProgress 0..1, из фонового потока.
      * @throws ImportConversionException если сконвертировать не удалось.
      */
-    suspend fun convert(source: String, onProgress: (Float) -> Unit): ConvertedWav
+    suspend fun convert(
+        source: String,
+        onProgress: (Float) -> Unit
+    ): ConvertedWav
 }
 
 /** Готовый WAV и его длительность. */
-data class ConvertedWav(val file: File, val durationMs: Long)
+data class ConvertedWav(
+    val file: File,
+    val durationMs: Long
+)
 
 /** Конвертация не удалась; [code] — причина для UI. */
-class ImportConversionException(val code: ErrorCode, override val cause: Throwable) : Exception(cause)
+class ImportConversionException(
+    val code: ErrorCode,
+    override val cause: Throwable
+) : Exception(cause)

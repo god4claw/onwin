@@ -18,12 +18,12 @@ import androidx.room.ForeignKey
             entity = SessionEntity::class,
             parentColumns = ["id"],
             childColumns = ["sessionId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+            onDelete = ForeignKey.CASCADE
+        )
+    ]
 )
 data class SpeakerNameEntity(
     val sessionId: String,
     val speaker: Int,
-    val name: String,
+    val name: String
 )

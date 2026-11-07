@@ -14,9 +14,10 @@ import com.example.onwin.data.database.entity.SpeakerNameEntity
  * @property speakerCount сколько разных спикеров в сегментах.
  */
 data class SessionListRow(
-    @Embedded val session: SessionEntity,
+    @Embedded
+    val session: SessionEntity,
     val segmentCount: Int,
-    val speakerCount: Int,
+    val speakerCount: Int
 )
 
 /**
@@ -27,9 +28,10 @@ data class SessionListRow(
  * @property speakerNames имена, которые пользователь дал спикерам.
  */
 data class SessionDetailRow(
-    @Embedded val session: SessionEntity,
+    @Embedded
+    val session: SessionEntity,
     @Relation(parentColumn = "id", entityColumn = "sessionId")
     val segments: List<SegmentEntity>,
     @Relation(parentColumn = "id", entityColumn = "sessionId")
-    val speakerNames: List<SpeakerNameEntity>,
+    val speakerNames: List<SpeakerNameEntity>
 )

@@ -8,8 +8,9 @@ import com.example.onwin.domain.processing.WakeLockHolder
  * [WakeLockHolder] на `PARTIAL_WAKE_LOCK` с предохранительным таймаутом [TIMEOUT_MS]
  * на случай, если [release] не будет вызван.
  */
-class PowerWakeLockHolder(context: Context) : WakeLockHolder {
-
+class PowerWakeLockHolder(
+    context: Context
+) : WakeLockHolder {
     private val wakeLock = context.getSystemService(PowerManager::class.java)
         .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PrivateOnWin:processing")
         .apply { setReferenceCounted(false) }
