@@ -135,6 +135,13 @@ class RecordingViewModel @Inject constructor(
         }
     }
 
+    internal suspend fun updateSegmentText(index: Int, text: String): Boolean =
+        try {
+            repository.updateSegmentText(sessionId, index, text)
+        } catch (_: SQLiteException) {
+            false
+        }
+
     /** Отменяет обработку. */
     fun cancel() = controller.cancel(sessionId)
 

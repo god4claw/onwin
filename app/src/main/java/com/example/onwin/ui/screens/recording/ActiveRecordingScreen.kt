@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +29,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,6 +50,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -102,6 +105,7 @@ internal fun ActiveRecordingScreen(
     onStop: () -> Unit,
     onCancel: () -> Unit,
     onRenameSpeaker: (Int) -> Unit,
+    onEditSegment: ((Int) -> Unit)? = null,
     playback: RecordingPlaybackState = RecordingPlaybackState(),
     playbackPosition: State<Long> = mutableLongStateOf(0L),
     onTogglePlayback: () -> Unit = {},
@@ -199,6 +203,7 @@ internal fun ActiveRecordingScreen(
                             compact = compact,
                             canSeek = playback.ready,
                             onRenameSpeaker = onRenameSpeaker,
+                            onEditSegment = onEditSegment,
                             onSeek = onSeekPlayback,
                             onboardingTarget = target,
                         )
@@ -308,6 +313,7 @@ private fun RecordingTranscript(
     canSeek: Boolean,
     onSeek: (Long) -> Unit,
     onRenameSpeaker: (Int) -> Unit,
+    onEditSegment: ((Int) -> Unit)?,
     onboardingTarget: TranscriptOnboardingTarget?,
 ) {
     val segments = detail.segments
@@ -377,6 +383,7 @@ private fun RecordingTranscript(
                 val target = onboardingTarget?.takeIf { segment.index == segments.lastOrNull()?.index }
                 val speakerName = speakerNames[segment.speaker]
                     ?: stringResource(R.string.speaker_default, segment.speaker + 1)
+                val timecode = formatClock(segment.startMs)
                 Column {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -400,12 +407,26 @@ private fun RecordingTranscript(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            text = formatClock(segment.startMs),
-                            modifier = Modifier.clickable(enabled = canSeek) { onSeek(segment.startMs) },
-                            color = RecordingDurationColor,
-                            style = MaterialTheme.typography.labelSmall,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = timecode,
+                                modifier = Modifier.clickable(enabled = canSeek) { onSeek(segment.startMs) },
+                                color = RecordingDurationColor,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            if (detail.session.status == SessionStatus.DONE && onEditSegment != null) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_recording_rename),
+                                    contentDescription = stringResource(R.string.segment_edit_action, timecode),
+                                    modifier = Modifier.size(20.dp)
+                                        .clickable(role = Role.Button) { onEditSegment(segment.index) },
+                                    tint = RecordingDurationColor,
+                                )
+                            }
+                        }
                     }
                     Text(
                         text = segment.text,

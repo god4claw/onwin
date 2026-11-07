@@ -58,6 +58,7 @@ internal fun ActiveRecordingRoute(
     var cancelling by rememberSaveable { mutableStateOf(false) }
     var lastElapsed by rememberSaveable { mutableLongStateOf(0L) }
     var editingSpeaker by rememberSaveable(viewModel.sessionId) { mutableStateOf<Int?>(null) }
+    var editingSegment by rememberSaveable(viewModel.sessionId) { mutableStateOf<Int?>(null) }
 
     var showExportFormats by rememberSaveable(viewModel.sessionId) { mutableStateOf(false) }
     var pendingExportFormat by rememberSaveable(viewModel.sessionId) { mutableStateOf<String?>(null) }
@@ -95,18 +96,25 @@ internal fun ActiveRecordingRoute(
         ?: lastElapsed
 
     val completedSession = detail?.session?.takeIf { it.status == SessionStatus.DONE }
+    val segmentToEdit = editingSegment?.takeIf { completedSession != null }?.let { index ->
+        detail?.segments?.firstOrNull { it.index == index }
+    }
+    if (state.loaded && editingSegment != null && segmentToEdit == null) {
+        LaunchedEffect(editingSegment) { editingSegment = null }
+    }
     val wavFile = completedSession?.wavFileName?.let(viewModel::wavFile)
     val playback = rememberRecordingPlayback(wavFile)
     val visibleOnboardingStep = onboardingStep?.takeIf {
         lifecycleState == Lifecycle.State.RESUMED && it != TranscriptOnboardingStep.COMPLETE &&
-            speakerToEdit == null && !showExportFormats && pendingExportFormat == null && !showCancelConfirmation
+            speakerToEdit == null && segmentToEdit == null && !showExportFormats &&
+            pendingExportFormat == null && !showCancelConfirmation
     }
 
     ActiveRecordingTheme {
         ActiveRecordingScreen(
             modifier = modifier,
             panelSlot = panelSlot,
-            panelDimmed = speakerToEdit != null || showCancelConfirmation || showExportFormats,
+            panelDimmed = speakerToEdit != null || segmentToEdit != null || showCancelConfirmation || showExportFormats,
             detail = detail,
             loaded = state.loaded,
             elapsedMs = elapsed,
@@ -118,6 +126,7 @@ internal fun ActiveRecordingRoute(
             onStop = viewModel::stopRecording,
             onCancel = { confirmCancelProcessing = processing },
             onRenameSpeaker = { editingSpeaker = it },
+            onEditSegment = { editingSegment = it },
             playback = playback.state,
             playbackPosition = playback.positionState,
             onTogglePlayback = playback::toggle,
@@ -172,6 +181,15 @@ internal fun ActiveRecordingRoute(
                     } else {
                         null
                     },
+                )
+            }
+        }
+        if (segmentToEdit != null) {
+            key(viewModel.sessionId, segmentToEdit.index) {
+                EditSegmentDialog(
+                    initialText = segmentToEdit.text,
+                    onSave = { text -> viewModel.updateSegmentText(segmentToEdit.index, text) },
+                    onDismiss = { editingSegment = null },
                 )
             }
         }

@@ -58,6 +58,15 @@ abstract class SessionDao {
     @Insert
     abstract suspend fun appendSegment(segment: SegmentEntity)
 
+    @Query(
+        """
+        UPDATE segments SET text = :text
+        WHERE sessionId = :sessionId AND `index` = :index
+            AND EXISTS (SELECT 1 FROM sessions WHERE id = :sessionId AND status = 'DONE')
+        """,
+    )
+    abstract suspend fun updateSegmentText(sessionId: String, index: Int, text: String): Int
+
     /** Заменяет все сегменты сессии на [segments] одной транзакцией. */
     @Transaction
     open suspend fun replaceSegments(sessionId: String, segments: List<SegmentEntity>) {

@@ -94,6 +94,9 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
         speakerNames.value += id to updated
     }
 
+    override suspend fun updateSegmentText(id: String, index: Int, text: String): Boolean =
+        error("Unexpected transcript edit in processing test")
+
     override suspend fun updateStatus(id: String, status: SessionStatus, errorCode: ErrorCode?, errorMessage: String?) {
         update(id) { it.copy(status = status, errorCode = errorCode, errorMessage = errorMessage) }
         record(id, status)

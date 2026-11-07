@@ -15,8 +15,10 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -93,6 +95,7 @@ class TranscriptExportTest {
                 compose.onNodeWithText("Черновик").isDisplayed()
             }
             button.assertDoesNotExist()
+            compose.onNodeWithContentDescription("Изменить реплику в 00:00").assertDoesNotExist()
 
             runBlocking {
                 repository.replaceSegments(
@@ -106,6 +109,31 @@ class TranscriptExportTest {
                 repository.updateStatus(session.id, SessionStatus.DONE)
             }
             compose.waitUntil(timeoutMillis = 5_000) { button.isDisplayed() }
+
+            val edit = compose.onNodeWithContentDescription("Изменить реплику в 00:04")
+            val textField = compose.onNodeWithContentDescription("Текст реплики")
+            edit.performClick()
+            textField.performTextReplacement("Отменённая правка")
+            compose.onNodeWithText("Отмена").performClick()
+            compose.waitUntil(timeoutMillis = 5_000) {
+                !compose.onNodeWithText("Изменить реплику").isDisplayed() &&
+                    compose.onNodeWithText("Привет!").isDisplayed()
+            }
+
+            edit.performClick()
+            val save = compose.onNodeWithText("Сохранить")
+            compose.onNodeWithText("Спикер реплики").assertDoesNotExist()
+            compose.onNodeWithContentDescription("Спикер реплики").assertDoesNotExist()
+            textField.performTextReplacement("   ")
+            save.assertIsNotEnabled()
+            textField.performTextReplacement("Рад встрече!")
+            save.performClick()
+            compose.waitUntil(timeoutMillis = 5_000) {
+                !compose.onNodeWithText("Изменить реплику").isDisplayed() &&
+                    compose.onNodeWithText("Рад встрече!").isDisplayed()
+            }
+            compose.onNodeWithText("Спикер 2").assertExists()
+
             val formats = listOf(
                 Triple("JSON", "application/json", "json"),
                 Triple("PDF", "application/pdf", "pdf"),
@@ -157,7 +185,7 @@ class TranscriptExportTest {
             val expected = """
                 {"transcript":[
                     {"speaker_id":"speaker_1","start_ms":1250,"end_ms":4380,"text":"Добрый день!"},
-                    {"speaker_id":"speaker_2","start_ms":4500,"end_ms":6000,"text":"Привет!"}
+                    {"speaker_id":"speaker_2","start_ms":4500,"end_ms":6000,"text":"Рад встрече!"}
                 ]}
             """.trimIndent()
             assertEquals(Json.parseToJsonElement(expected), Json.parseToJsonElement(actual))

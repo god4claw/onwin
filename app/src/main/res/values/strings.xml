@@ -75,6 +75,10 @@
     <string name="transcript_onboarding_done">Готово</string>
     <string name="speaker_rename_label">Имя спикера</string>
     <string name="speaker_rename_failed">Не удалось изменить имя спикера.</string>
+    <string name="segment_edit_action">Изменить реплику в %1$s</string>
+    <string name="segment_edit_title">Изменить реплику</string>
+    <string name="segment_edit_text">Текст реплики</string>
+    <string name="segment_edit_failed">Не удалось сохранить реплику.</string>
 
     <!-- Ошибки -->
     <string name="error_interrupted">Работа прервалась. Повторите обработку сохранённого аудио или начните новую запись.</string>

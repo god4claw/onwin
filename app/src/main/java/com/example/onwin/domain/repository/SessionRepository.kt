@@ -36,6 +36,9 @@ interface SessionRepository {
     /** Сохраняет имя спикера в сессии. `null` возвращает стандартное имя. */
     suspend fun setSpeakerName(id: String, speaker: Int, name: String?)
 
+    /** Обновляет текст одной реплики готовой сессии. */
+    suspend fun updateSegmentText(id: String, index: Int, text: String): Boolean
+
     /** Меняет статус; ошибка задаётся только вместе с [SessionStatus.FAILED], иначе стирается. */
     suspend fun updateStatus(
         id: String,

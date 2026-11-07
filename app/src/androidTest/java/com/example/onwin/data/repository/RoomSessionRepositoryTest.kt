@@ -15,6 +15,7 @@ import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.model.SpeakerName
 import com.example.onwin.domain.model.TranscriptSegment
+import com.example.speech.api.Segment
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.produceIn
 import kotlinx.coroutines.runBlocking
@@ -121,6 +122,38 @@ class RoomSessionRepositoryTest {
         } finally {
             updates.cancel()
         }
+    }
+
+    @Test
+    fun updatingTextPreservesSpeakersTimecodesAndOtherReplies() = runBlocking {
+        val id = "edit"
+        val untouched = TranscriptSegment(1, 3, 2_000, 3_000, "Без изменений")
+        repository.create(session(id))
+        repository.appendSegment(id, 0, Segment(0, 250, 1_500, "Исходный текст"))
+        repository.appendSegment(id, 1, Segment(3, 2_000, 3_000, untouched.text))
+        repository.setSpeakerName(id, 3, "Борис")
+        repository.setSpeakerName(id, 0, "Вера")
+
+        assertTrue(repository.updateSegmentText(id, 0, "  Исправление  "))
+        val edited = checkNotNull(repository.observeSession(id).first())
+        assertEquals(listOf(TranscriptSegment(0, 0, 250, 1_500, "Исправление"), untouched), edited.segments)
+        assertEquals(setOf(SpeakerName(0, "Вера"), SpeakerName(3, "Борис")), edited.speakerNames.toSet())
+        assertEquals(2, repository.observeSessions().first().single().speakerCount)
+    }
+
+    @Test
+    fun updatingTextRejectsUnfinishedSessionsMissingSegmentsAndBlankText() = runBlocking {
+        val id = "unfinished"
+        repository.create(session(id).copy(status = SessionStatus.TRANSCRIBING))
+        repository.appendSegment(id, 0, Segment(0, 0, 1_000, "Исходный текст"))
+
+        assertFalse(repository.updateSegmentText(id, 0, "Исправление"))
+        repository.updateStatus(id, SessionStatus.DONE)
+        val before = repository.observeSession(id).first()
+        assertEquals("Исходный текст", before?.segments?.single()?.text)
+        assertFalse(repository.updateSegmentText(id, 5, "Исправление"))
+        assertFalse(repository.updateSegmentText(id, 0, "  "))
+        assertEquals(before, repository.observeSession(id).first())
     }
 
     @Test

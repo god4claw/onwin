@@ -111,9 +111,11 @@ class ActiveRecordingScreenTest {
     }
 
     @Test
-    fun transcriptSeekJumpsToSegmentStartOnlyWhenPlaybackReady() {
+    fun transcriptSeekAndEditRemainSeparateInACompactRow() {
         val playback = mutableStateOf(RecordingPlaybackState())
+        val editingAvailable = mutableStateOf(false)
         var sought: Long? = null
+        var edited: Int? = null
         val detail = SessionDetail(
             session = Session(
                 id = "done",
@@ -145,6 +147,7 @@ class ActiveRecordingScreenTest {
                     onStop = {},
                     onCancel = {},
                     onRenameSpeaker = {},
+                    onEditSegment = if (editingAvailable.value) { index -> edited = index } else null,
                     playback = playback.value,
                     onTogglePlayback = {},
                     onSeekPlayback = { sought = it },
@@ -160,8 +163,24 @@ class ActiveRecordingScreenTest {
         compose.onNodeWithText("Вторая реплика").performClick()
         compose.runOnIdle { assertEquals(25_000L, sought) }
 
-        compose.onNodeWithText("00:09").performClick()
+        val speaker = compose.onNodeWithText("Анна")
+        val timecode = compose.onNodeWithText("00:09")
+        val text = compose.onNodeWithText("Первая реплика")
+        val originalGap = text.getUnclippedBoundsInRoot().top - speaker.getUnclippedBoundsInRoot().bottom
+
+        compose.runOnIdle { editingAvailable.value = true }
+        val edit = compose.onNodeWithContentDescription("Изменить реплику в 00:09")
+        val gap = text.getUnclippedBoundsInRoot().top - speaker.getUnclippedBoundsInRoot().bottom
+        assertEquals(originalGap.value, gap.value, 1f)
+        assertTrue((edit.getUnclippedBoundsInRoot().left - timecode.getUnclippedBoundsInRoot().right) in 0.dp..3.dp)
+
+        timecode.performTouchInput { click() }
         compose.runOnIdle { assertEquals(9_200L, sought) }
+        edit.performTouchInput { click() }
+        compose.runOnIdle {
+            assertEquals(0, edited)
+            assertEquals(9_200L, sought)
+        }
     }
 
     @Test

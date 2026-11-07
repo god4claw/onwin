@@ -43,6 +43,11 @@ class RoomSessionRepository(
         }
     }
 
+    override suspend fun updateSegmentText(id: String, index: Int, text: String): Boolean {
+        val trimmedText = text.trim()
+        return trimmedText.isNotEmpty() && dao.updateSegmentText(id, index, trimmedText) != 0
+    }
+
     override fun observeSessions(): Flow<List<SessionListItem>> = dao.observeSessions().map { rows ->
         rows.map { row -> SessionListItem(row.session.toDomain(), row.segmentCount, row.speakerCount) }
     }
