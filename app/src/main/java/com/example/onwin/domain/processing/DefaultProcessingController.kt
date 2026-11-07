@@ -9,6 +9,12 @@ import com.example.speech.api.SpeechConfig
 import com.example.speech.api.Stage
 import com.example.speech.api.Transcriber
 import com.example.speech.api.TranscriptionEvent
+import java.io.File
+import java.time.Clock
+import java.util.Locale
+import java.util.UUID
+import kotlin.time.Duration
+import kotlin.time.TimeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -29,32 +35,28 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.IOException
-import java.text.DateFormat
-import java.time.Clock
-import java.util.Date
-import java.util.Locale
-import java.util.UUID
-import kotlin.time.Duration
-import kotlin.time.TimeSource
 
 /**
  * [ProcessingController] с очередью в памяти и статусами в [SessionRepository].
  *
+ * Устройство:
  * - очередь и текущее задание защищены `lock`; под ним же вызываются [ForegroundStarter.start] и
- *   [ForegroundStarter.stop], поэтому сервис стартует и останавливается в том же порядке, что и очередь;
- * - очередь разбирает один работник на пачку заданий: модели грузятся перед первой расшифровкой пачки,
- *   [Transcriber.release] вызывается при опустевшей очереди и в `finally`; двух расшифровок одновременно не бывает;
- * - каждое задание — отдельная корутина: её отмена не задевает работника, а итог (`CANCELLED`/`FAILED`)
- *   записывает работник, даже если задание отменили до старта.
+ *   [ForegroundStarter.stop], поэтому запуски и остановки сервиса идут в том же порядке, что и изменения очереди;
+ * - очередь разбирает один работник на пачку заданий. Модели грузятся перед первой расшифровкой пачки,
+ *   [Transcriber.release] вызывается, когда очередь опустела, и в `finally`. Новый работник появляется,
+ *   только когда прежний закончил, поэтому двух расшифровок одновременно не бывает;
+ * - захват микрофона выполняется независимо и резервирует место в FIFO до сохранения WAV;
+ * - каждое задание — отдельная корутина. Её отмена не задевает работника, а итог отмены (`CANCELLED` или
+ *   `FAILED`) записывает работник — даже если задание отменили до старта.
  *
- * Устройство опирается на ProtocolVoice LongTaskRunner, Apache-2.0 (долгие задачи в scope приложения).
+ * Structure informed by ProtocolVoice LongTaskRunner, Apache-2.0 (долгие задачи в scope приложения).
  *
  * @param audio входной этап: доступ к исходнику и конвертация.
  * @param repository статусы и сегменты.
- * @param transcriber расшифровка; строго одно задание за раз.
+ * @param transcriber расшифровка; используется строго по одному заданию.
  * @param speechConfig конфигурация для [Transcriber.load].
  * @param foreground запуск и остановка foreground-сервиса.
  * @param wakeLock держит CPU, пока идёт задание.
@@ -73,23 +75,27 @@ class DefaultProcessingController(
     private val clock: Clock = Clock.systemUTC(),
     private val log: (String) -> Unit = {},
     private val microphone: MicrophoneRecorder? = null,
-    private val recordingTitle: (Long) -> String = { DateFormat.getDateTimeInstance().format(Date(it)) }
+    private val recordingTitle: (Long) -> String = { java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)) },
 ) : ProcessingController {
+
     private val scope = CoroutineScope(
-        SupervisorJob() + dispatcher + CoroutineExceptionHandler { _, e -> log("Unexpected error: $e") }
+        SupervisorJob() + dispatcher + CoroutineExceptionHandler { _, e -> log("Unexpected error: $e") },
     )
 
     private val lock = Any()
     private val queue = ArrayDeque<QueuedJob>()  // под lock
     private var current: ActiveJob? = null       // под lock
+    private var capture: ActiveCapture? = null  // под lock
     private var workerActive = false             // под lock
+    private var wakeLockUsers = 0                // под lock
+    private val sourceAccess = Mutex()
 
     private val _state = MutableStateFlow(ProcessingState())
     override val state: StateFlow<ProcessingState> = _state.asStateFlow()
 
     /**
-     * Сессии, брошенные умершим процессом, становятся `INTERRUPTED`, их осиротевшие WAV и `.part` удаляются.
-     * Новые строки и конвертация начинаются только после этого.
+     * Сессии, брошенные умершим процессом, становятся `INTERRUPTED`, а его осиротевшие WAV и `.part` удаляются.
+     * Новые строки пишутся и конвертация начинается только после этого.
      */
     private val recovery: Job = scope.launch {
         val count = repository.failUnfinished(ErrorCode.INTERRUPTED)
@@ -99,49 +105,52 @@ class DefaultProcessingController(
     }
 
     override fun startRecording(): String? = synchronized(lock) {
-        if (workerActive || queue.isNotEmpty() || microphone == null) return null
+        if (capture != null || microphone == null) return null
         val id = UUID.randomUUID().toString()
         val createdAt = clock.millis()
         val title = recordingTitle(createdAt)
         val prepared = scope.async {
             recovery.join()
-            repository.create(
-                Session(
-                    id = id,
-                    title = title,
-                    source = SessionSource.MIC,
-                    originalName = "$id.wav",
-                    sourceUri = null,
-                    createdAt = createdAt,
-                    updatedAt = createdAt,
-                    status = SessionStatus.RECORDING
-                )
-            )
+            repository.create(Session(
+                id = id, title = title, source = SessionSource.MIC,
+                originalName = "$id.wav", sourceUri = null,
+                createdAt = createdAt, updatedAt = createdAt, status = SessionStatus.RECORDING,
+            ))
             true
         }
+        try {
+            foreground.startMicrophone(id)
+        } catch (e: ForegroundStartException) {
+            recordForegroundRefusal(QueuedJob(id, prepared), e)
+            return id
+        }
+        val active = ActiveCapture(id, prepared)
+        active.job = scope.launch(start = CoroutineStart.LAZY) {
+            if (prepared.await() && captureAudio(active)) active.saved = true
+        }
+        capture = active
         _state.update { it.copy(recording = RecordingState(id, title)) }
-        submit(QueuedJob(id, prepared, CompletableDeferred()))
+        acquireWakeLock()
+        addToQueue(QueuedJob(id, active.ready))
+        scope.launch { finishCapture(active) }
         id
     }
 
     override fun stopRecording(sessionId: String): Unit = synchronized(lock) {
         val state = _state.value.recording ?: return
         if (state.sessionId != sessionId || state.phase == RecordingPhase.STOPPING) return
-        val queued = current?.takeIf { it.sessionId == sessionId }?.queued
-            ?: queue.firstOrNull { it.sessionId == sessionId }
-            ?: return
-        queued.recordingStop?.complete(Unit)
         _state.update { it.copy(recording = state.copy(phase = RecordingPhase.STOPPING)) }
+        capture?.stop?.complete(Unit)
     }
 
     override fun enqueueImport(source: String): String = submitImport(source).sessionId
 
-    override suspend fun importIfIdle(source: String): String? {
-        val job = synchronized(lock) {
-            if (workerActive || queue.isNotEmpty()) return null
-            submitImport(source)
+    override suspend fun importAudio(source: String): ImportSubmission? {
+        val (job, openDetails) = synchronized(lock) {
+            val idle = !workerActive
+            submitImport(source) to idle
         }
-        return if (job.awaitPrepared()) job.sessionId else null
+        return if (job.awaitPrepared()) ImportSubmission(job.sessionId, openDetails) else null
     }
 
     private fun submitImport(source: String): QueuedJob {
@@ -149,20 +158,25 @@ class DefaultProcessingController(
         val createdAt = clock.millis()
         val prepared = scope.async {
             recovery.join()
-            audio.retainAccess(source)
             val name = audio.displayName(source)?.takeIf { it.isNotBlank() } ?: DEFAULT_NAME
-            repository.create(
-                Session(
-                    id = id,
-                    title = name.substringBeforeLast('.').ifBlank { name },
-                    source = SessionSource.IMPORT,
-                    originalName = name,
-                    sourceUri = source,
-                    createdAt = createdAt,
-                    updatedAt = createdAt,
-                    status = SessionStatus.QUEUED
-                )
-            )
+            sourceAccess.withLock {
+                audio.retainAccess(source)
+                try {
+                    repository.create(Session(
+                        id = id,
+                        title = name.substringBeforeLast('.').ifBlank { name },
+                        source = SessionSource.IMPORT,
+                        originalName = name,
+                        sourceUri = source,
+                        createdAt = createdAt,
+                        updatedAt = createdAt,
+                        status = SessionStatus.QUEUED,
+                    ))
+                } catch (e: Exception) {
+                    releaseUnusedSource(source)
+                    throw e
+                }
+            }
             true
         }
         return QueuedJob(id, prepared).also(::submit)
@@ -173,10 +187,8 @@ class DefaultProcessingController(
         val prepared = scope.async {
             recovery.join()
             val session = repository.get(sessionId)
-            val hasWav = session?.wavFileName
-                ?.let(repository::wavFile)
-                ?.let { it.isFile && it.length() > WAV_HEADER_BYTES } == true
-            if (session == null || !session.canRetry || (session.source == SessionSource.MIC && !hasWav)) {
+            if (session == null || !session.canRetry || (session.source == SessionSource.MIC &&
+                    session.wavFileName?.let(repository::wavFile)?.let { it.isFile && it.length() > WAV_HEADER_BYTES } != true)) {
                 log("Retry of $sessionId ignored: status ${session?.status}")
                 return@async false
             }
@@ -189,13 +201,15 @@ class DefaultProcessingController(
 
     override fun cancel(sessionId: String) {
         val removed = synchronized(lock) {
+            capture?.takeIf { it.sessionId == sessionId }?.let {
+                it.requestStop(StopRequest(SessionStatus.CANCELLED))
+                return
+            }
             current?.takeIf { it.sessionId == sessionId }?.let { active ->
                 active.requestStop(StopRequest(SessionStatus.CANCELLED))
                 return
             }
-            queue.removeQueued(sessionId)?.also {
-                if (it.recordingStop != null) _state.update { state -> state.copy(recording = null) }
-            }
+            queue.removeQueued(sessionId)
         } ?: return
         scope.launch {
             if (removed.awaitPrepared()) repository.updateStatus(sessionId, SessionStatus.CANCELLED)
@@ -213,20 +227,25 @@ class DefaultProcessingController(
         scope.launch {
             removed?.awaitPrepared()
             recovery.join()
-            repository.get(sessionId)?.sourceUri?.let(audio::releaseAccess)
-            repository.delete(sessionId)
+            sourceAccess.withLock {
+                val source = repository.get(sessionId)?.sourceUri
+                repository.delete(sessionId)
+                source?.let { releaseUnusedSource(it) }
+            }
             log("Deleted $sessionId")
         }
     }
 
     override fun failAll(errorCode: ErrorCode) {
         val dropped = synchronized(lock) {
-            current?.requestStop(StopRequest(SessionStatus.FAILED, errorCode))
-            queue.toList().also {
+            val stop = StopRequest(SessionStatus.FAILED, errorCode)
+            capture?.requestStop(stop)
+            current?.takeUnless { it.sessionId == capture?.sessionId }?.requestStop(stop)
+            queue.filterNot { it.sessionId == capture?.sessionId }.also {
+                val recording = queue.firstOrNull { it.sessionId == capture?.sessionId }
                 queue.clear()
-                if (it.any { queued -> queued.recordingStop != null }) {
-                    _state.update { state -> state.copy(recording = null) }
-                }
+                // Keep the reservation until capture cleanup, so the service and worker stay alive.
+                recording?.let(queue::addLast)
                 publishQueueSize()
             }
         }
@@ -243,24 +262,27 @@ class DefaultProcessingController(
     private fun submit(job: QueuedJob) {
         val refusal = synchronized(lock) {
             try {
-                if (job.recordingStop != null) {
-                    foreground.startMicrophone(job.sessionId)
-                } else {
-                    foreground.start(job.sessionId)
-                }
+                foreground.start(job.sessionId)
             } catch (e: ForegroundStartException) {
                 return@synchronized e
             }
-            queue.addLast(job)
-            publishQueueSize()
-            if (!workerActive) {
-                workerActive = true
-                _state.update { it.copy(busy = true) }
-                scope.launch { runWorker() }
-            }
+            addToQueue(job)
             null
         } ?: return
-        _state.update { if (it.recording?.sessionId == job.sessionId) it.copy(recording = null) else it }
+        recordForegroundRefusal(job, refusal)
+    }
+
+    private fun addToQueue(job: QueuedJob) {
+        queue.addLast(job)
+        publishQueueSize()
+        if (!workerActive) {
+            workerActive = true
+            _state.update { it.copy(busy = true) }
+            scope.launch { runWorker() }
+        }
+    }
+
+    private fun recordForegroundRefusal(job: QueuedJob, refusal: ForegroundStartException) {
         log("Foreground start refused for ${job.sessionId}: ${refusal.cause}")
         scope.launch {
             if (job.awaitPrepared()) {
@@ -268,7 +290,7 @@ class DefaultProcessingController(
                     job.sessionId,
                     SessionStatus.FAILED,
                     ErrorCode.FOREGROUND_NOT_ALLOWED,
-                    refusal.cause.toString()
+                    refusal.cause.toString(),
                 )
             }
         }
@@ -333,17 +355,19 @@ class DefaultProcessingController(
     }
 
     private suspend fun execute(active: ActiveJob) {
-        wakeLock.acquire()
+        synchronized(lock) { acquireWakeLock() }
         try {
             active.job.start()
             active.job.join()
-            if (active.job.isCancelled) withContext(NonCancellable) { recordStop(active) }
+            if (active.job.isCancelled && !active.done) withContext(NonCancellable) { recordStop(active) }
         } finally {
             // Работника отменили посреди задания: дождаться его, чтобы release не пришёлся на расшифровку.
             if (active.job.isActive) withContext(NonCancellable) { active.job.cancelAndJoin() }
-            synchronized(lock) { current = null }
-            _state.update { it.copy(running = null, recording = null) }
-            wakeLock.release()
+            synchronized(lock) {
+                current = null
+                _state.update { it.copy(running = null) }
+                releaseWakeLock()
+            }
         }
     }
 
@@ -369,34 +393,84 @@ class DefaultProcessingController(
         }
     }
 
-    private suspend fun process(
-        active: ActiveJob,
-        batch: Batch
-    ) {
+    private suspend fun process(active: ActiveJob, batch: Batch) {
         val id = active.sessionId
         if (!active.queued.awaitPrepared()) return
         val session = repository.get(id) ?: return
         active.title = session.title
         val metrics = JobMetrics()
         try {
-            if (active.queued.recordingStop != null) capture(active)
             try { foreground.awaitProcessing() } catch (e: CancellationException) { throw e }
             catch (e: Exception) { throw StepFailure(ErrorCode.FOREGROUND_NOT_ALLOWED, e) }
-            val wav = obtainWav(active, repository.get(id) ?: return, metrics)
+            val wav = obtainWav(active, session, metrics)
             transcribe(active, batch, wav, metrics)
-            repository.updateStatus(id, SessionStatus.DONE)
-            session.sourceUri?.let(audio::releaseAccess)
-            log(metrics.summary(id))
+            currentCoroutineContext().ensureActive()
+            withContext(NonCancellable) {
+                repository.updateStatus(id, SessionStatus.DONE)
+                active.done = true
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             val failure = e as? StepFailure ?: StepFailure(ErrorCode.UNKNOWN, e)
             log("Job $id failed: ${failure.code}, ${failure.cause}")
             repository.updateStatus(id, SessionStatus.FAILED, failure.code, failure.cause.toString())
+            return
+        }
+        session.sourceUri?.let { source ->
+            sourceAccess.withLock { releaseUnusedSource(source) }
+        }
+        log(metrics.summary(id))
+    }
+
+    private suspend fun finishCapture(active: ActiveCapture) {
+        active.job.start()
+        active.job.join()
+        try {
+            val stop = synchronized(lock) {
+                active.stopRequest.also { request ->
+                    if (request == null) completeCapture(active, ready = active.saved)
+                }
+            }
+            if (stop != null && active.prepared.await()) {
+                repository.updateStatus(active.sessionId, stop.status, stop.errorCode)
+            }
+        } finally {
+            synchronized(lock) {
+                if (capture === active) completeCapture(active, ready = false)
+            }
         }
     }
 
-    private suspend fun capture(active: ActiveJob) {
+    /** Atomically hand the saved WAV to the worker, or tell it to skip this reservation. */
+    private fun completeCapture(active: ActiveCapture, ready: Boolean) {
+        foreground.finishMicrophone()
+        capture = null
+        _state.update { it.copy(recording = null) }
+        releaseWakeLock()
+        active.ready.complete(ready)
+    }
+
+    private fun acquireWakeLock() {
+        if (wakeLockUsers++ == 0) wakeLock.acquire()
+    }
+
+    private fun releaseWakeLock() {
+        if (--wakeLockUsers == 0) wakeLock.release()
+    }
+
+    /** Caller holds sourceAccess, so a new import cannot retain a grant just before we release it. */
+    private suspend fun releaseUnusedSource(source: String) {
+        try {
+            if (!repository.hasImportNeedingSource(source)) audio.releaseAccess(source)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log("Cannot release import access: $e")
+        }
+    }
+
+    private suspend fun captureAudio(active: ActiveCapture): Boolean {
         val id = active.sessionId
         val part = repository.wavFile("$id.wav.part")
         val wav = repository.wavFile("$id.wav")
@@ -404,7 +478,7 @@ class DefaultProcessingController(
         try {
             try { foreground.awaitMicrophone() } catch (e: CancellationException) { throw e }
             catch (e: Exception) { throw StepFailure(ErrorCode.FOREGROUND_NOT_ALLOWED, e) }
-            val duration = checkNotNull(microphone).record(part, checkNotNull(active.queued.recordingStop), {
+            val duration = checkNotNull(microphone).record(part, active.stop, {
                 _state.update { state -> state.copy(recording = state.recording?.let {
                     if (it.phase == RecordingPhase.STARTING) it.copy(phase = RecordingPhase.RECORDING) else it
                 }) }
@@ -412,30 +486,33 @@ class DefaultProcessingController(
                 _state.update { it.copy(recording = it.recording?.copy(elapsedMs = duration)) }
             })
             currentCoroutineContext().ensureActive()
-            // После фиксации WAV — оригинал: отмена не должна его удалять.
+            // Once committed, the microphone WAV is an original and cancellation must preserve it.
             withContext(NonCancellable) {
-                if (!part.renameTo(wav)) throw IOException("Cannot commit recording")
+                if (!part.renameTo(wav)) throw java.io.IOException("Cannot commit recording")
                 repository.setWav(id, wav.name, duration)
                 committed = true
                 repository.updateStatus(id, SessionStatus.QUEUED)
             }
-        } catch (e: RecordingException) {
-            throw StepFailure(e.code, e)
-        } catch (e: IOException) {
-            throw StepFailure(ErrorCode.STORAGE_FULL, e)
+            return true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val code = when (e) {
+                is RecordingException -> e.code
+                is StepFailure -> e.code
+                is java.io.IOException -> ErrorCode.STORAGE_FULL
+                else -> ErrorCode.UNKNOWN
+            }
+            repository.updateStatus(id, SessionStatus.FAILED, code, e.toString())
+            return false
         } finally {
             part.delete()
             if (!committed) wav.delete()
-            _state.update { it.copy(recording = null) }
         }
     }
 
     /** Существующий WAV (повтор) или новый из исходника. */
-    private suspend fun obtainWav(
-        active: ActiveJob,
-        session: Session,
-        metrics: JobMetrics
-    ): File {
+    private suspend fun obtainWav(active: ActiveJob, session: Session, metrics: JobMetrics): File {
         val existing = session.wavFileName?.let(repository::wavFile)
         if (existing != null) {
             if (session.durationMs != null && existing.isFile && existing.length() > WAV_HEADER_BYTES) {
@@ -466,12 +543,7 @@ class DefaultProcessingController(
         return result.file
     }
 
-    private suspend fun transcribe(
-        active: ActiveJob,
-        batch: Batch,
-        wav: File,
-        metrics: JobMetrics
-    ) {
+    private suspend fun transcribe(active: ActiveJob, batch: Batch, wav: File, metrics: JobMetrics) {
         val id = active.sessionId
         repository.updateStatus(id, SessionStatus.TRANSCRIBING)
         try {
@@ -510,11 +582,7 @@ class DefaultProcessingController(
         }
     }
 
-    private fun report(
-        active: ActiveJob,
-        stage: ProcessingStage,
-        fraction: Float?
-    ) {
+    private fun report(active: ActiveJob, stage: ProcessingStage, fraction: Float?) {
         _state.update { it.copy(running = RunningJob(active.sessionId, active.title, stage, fraction)) }
     }
 
@@ -547,19 +615,29 @@ class DefaultProcessingController(
 
     /** Задание в очереди; [prepared] — строка в БД готова (`false` — обрабатывать нечего). */
     private class QueuedJob(
-        val sessionId: String,
-        val prepared: Deferred<Boolean>,
-        val recordingStop: CompletableDeferred<Unit>? = null
+        val sessionId: String, val prepared: Deferred<Boolean>,
     )
 
+    private class ActiveCapture(val sessionId: String, val prepared: Deferred<Boolean>) {
+        val stop = CompletableDeferred<Unit>()
+        val ready = CompletableDeferred<Boolean>()
+        lateinit var job: Job
+        var saved = false
+        var stopRequest: StopRequest? = null
+
+        fun requestStop(request: StopRequest) {
+            if (stopRequest == null) stopRequest = request
+            job.cancel()
+        }
+    }
+
     /** Задание в работе. Поля, кроме [stopRequest], пишет корутина задания, читает работник после `join`. */
-    private class ActiveJob(
-        val queued: QueuedJob
-    ) {
+    private class ActiveJob(val queued: QueuedJob) {
         val sessionId: String get() = queued.sessionId
         lateinit var job: Job
         var title: String = ""
         var createdWav: File? = null
+        var done = false
         var stopRequest: StopRequest? = null  // под lock
 
         /** Вызывать под lock. Первая причина остановки побеждает. */
@@ -569,23 +647,17 @@ class DefaultProcessingController(
         }
     }
 
-    private data class StopRequest(
-        val status: SessionStatus,
-        val errorCode: ErrorCode? = null
-    )
+    private data class StopRequest(val status: SessionStatus, val errorCode: ErrorCode? = null)
 
     /** Состояние моделей в пределах одной пачки заданий. */
     private class Batch {
         var loaded = false
 
-        // Контракт требует release всегда: в конце пачки он вызывается, даже если load не понадобился.
+        // Контракт требует всегда вызывать release: в конце пачки он вызывается, даже если load не понадобился.
         var needsRelease = true
     }
 
-    private class StepFailure(
-        val code: ErrorCode,
-        override val cause: Throwable
-    ) : Exception(cause)
+    private class StepFailure(val code: ErrorCode, override val cause: Throwable) : Exception(cause)
 
     private class JobMetrics {
         private val started = TimeSource.Monotonic.markNow()
@@ -603,7 +675,7 @@ class DefaultProcessingController(
                     "RTF total=%.3f, RTF transcription=%.3f",
                 id, audioMs, conversion?.inWholeMilliseconds?.let { "$it ms" } ?: "reused",
                 load?.inWholeMilliseconds?.let { "$it ms" } ?: "cached",
-                transcriptionMs, totalMs, totalMs.toDouble() / audioMs, transcriptionMs.toDouble() / audioMs
+                transcriptionMs, totalMs, totalMs.toDouble() / audioMs, transcriptionMs.toDouble() / audioMs,
             )
         }
     }

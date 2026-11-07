@@ -12,7 +12,6 @@ import java.io.DataInputStream
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Демо-реализация [Transcriber] без моделей: приложению и тестам нужны правдоподобные сегменты,
@@ -36,21 +35,22 @@ class FakeTranscriber(
     private val loadDelayMs: Long = 1_000,
     private val diarizationMs: Long = 2_000,
     private val realtimeFactor: Double = 0.1,
-    private val failAfterSegments: Int? = null
+    private val failAfterSegments: Int? = null,
 ) : Transcriber {
+
     @Volatile
     private var loadedConfig: SpeechConfig? = null
     private val busy = AtomicBoolean(false)
 
     override suspend fun load(config: SpeechConfig) {
         if (loadedConfig == config) return
-        delay(loadDelayMs.milliseconds)
+        delay(loadDelayMs)
         loadedConfig = config
     }
 
     override fun transcribe(
         wav: File,
-        @Suppress("UNUSED_PARAMETER") expectedSpeakers: Int?
+        @Suppress("UNUSED_PARAMETER") expectedSpeakers: Int?,
     ): Flow<TranscriptionEvent> = flow {
         check(loadedConfig != null) { "load() must be called before transcribe()" }
         check(busy.compareAndSet(false, true)) { "Another transcription is running" }
@@ -62,7 +62,7 @@ class FakeTranscriber(
                 return@flow
             }
             for (step in 1..DIARIZATION_STEPS) {
-                delay((diarizationMs / DIARIZATION_STEPS).milliseconds)
+                delay(diarizationMs / DIARIZATION_STEPS)
                 emit(TranscriptionEvent.Progress(Stage.DIARIZATION, step.toFloat() / DIARIZATION_STEPS))
             }
             val segments = planSegments(durationMs)
@@ -72,7 +72,7 @@ class FakeTranscriber(
                     emit(TranscriptionEvent.Failed(IllegalStateException("Fake failure after $index segments")))
                     return@flow
                 }
-                delay(((segment.endMs - segment.startMs) * realtimeFactor).toLong().milliseconds)
+                delay(((segment.endMs - segment.startMs) * realtimeFactor).toLong())
                 emit(TranscriptionEvent.SegmentReady(segment))
                 emit(TranscriptionEvent.Progress(Stage.RECOGNITION, (index + 1f) / segments.size))
             }
@@ -97,7 +97,7 @@ class FakeTranscriber(
             "Хорошо, расскажите коротко, что получилось.",
             "Мы закончили импорт и сейчас проверяем распознавание.",
             "Есть вопросы по срокам?",
-            "Думаю, к пятнице успеем всё доделать."
+            "Думаю, к пятнице успеем всё доделать.",
         )
 
         /** Длительность канонического WAV 16 кГц моно PCM16 по размеру чанка `data`. */
