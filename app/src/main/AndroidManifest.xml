@@ -60,10 +60,12 @@
         <provider
             android:name="ai.onnxruntime.genai.TelemetryInitializer"
             android:authorities="${applicationId}.onnxruntime_genai_telemetry_initializer"
+            tools:ignore="MissingClass"
             tools:node="remove" />
         <provider
             android:name="ai.onnxruntime.TelemetryInitializer"
             android:authorities="${applicationId}.onnxruntime_telemetry_initializer"
+            tools:ignore="MissingClass"
             tools:node="remove" />
     </application>
 
