@@ -65,6 +65,11 @@ param(
     # Порог финальной перекластеризации streaming; NaN — не передавать (SpeechConfig).
     [double]$ReclusterThreshold = [double]::NaN,
 
+    # Поиск смены говорящего внутри VAD-чанка, мс; -1 — не передавать (SpeechConfig).
+    [int]$SpeakerChangeWindowMs = -1,
+    [int]$SpeakerChangeHopMs = -1,
+    [int]$SpeakerChangeMinMs = -1,
+
     [string]$Serial = "",
 
     [string]$OutDir = "bench-results",
@@ -206,6 +211,9 @@ if ($Agc) { $optionalArgs += @("-e", "agc", $Agc) }
 if (-not [double]::IsNaN($AgcTargetDb)) { $optionalArgs += @("-e", "agc_target_db", $AgcTargetDb.ToString($invariant)) }
 if (-not [double]::IsNaN($AgcMaxGainDb)) { $optionalArgs += @("-e", "agc_max_gain_db", $AgcMaxGainDb.ToString($invariant)) }
 if ($DumpEmbeddings) { $optionalArgs += @("-e", "dump_embeddings", "on") }
+if ($SpeakerChangeWindowMs -gt 0) { $optionalArgs += @("-e", "speaker_change_window_ms", "$SpeakerChangeWindowMs") }
+if ($SpeakerChangeHopMs -gt 0) { $optionalArgs += @("-e", "speaker_change_hop_ms", "$SpeakerChangeHopMs") }
+if ($SpeakerChangeMinMs -ge 0) { $optionalArgs += @("-e", "speaker_change_min_ms", "$SpeakerChangeMinMs") }
 if (-not [double]::IsNaN($ReclusterThreshold)) {
     if ($ReclusterThreshold -lt 0 -or $ReclusterThreshold -gt 1) { throw "ReclusterThreshold must be in 0..1" }
     $optionalArgs += @("-e", "recluster_threshold", $ReclusterThreshold.ToString($invariant))

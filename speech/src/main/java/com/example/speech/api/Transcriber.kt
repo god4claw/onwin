@@ -57,6 +57,8 @@ data class SpeechConfig(
     val clusterPruneMinFraction: Float = 0.05f,
     /** Порог косинуса для смены говорящего внутри VAD-чанка. */
     val speakerChangeThreshold: Float = 0.65f,
+    /** Шаг окон CAM++ при поиске смены говорящего внутри VAD-чанка. */
+    val speakerChangeHopMs: Int = 800,
     /** Длина окна для CAM++ при поиске смены говорящего. */
     val speakerChangeWindowMs: Int = 1_600,
     /** Минимальная длина куска после разреза по смене говорящего. */
@@ -83,6 +85,9 @@ data class SpeechConfig(
         }
         require(speakerChangeThreshold in 0f..1f) {
             "speakerChangeThreshold должен быть в 0..1, получено $speakerChangeThreshold"
+        }
+        require(speakerChangeHopMs > 0) {
+            "speakerChangeHopMs должен быть > 0, получено $speakerChangeHopMs"
         }
         require(speakerChangeWindowMs > 0) {
             "speakerChangeWindowMs должен быть > 0, получено $speakerChangeWindowMs"

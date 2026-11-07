@@ -13,6 +13,36 @@ internal class AsrRunner(
     fun transcribe(samples: FloatArray): String =
         transcribeRange(samples, 0, samples.size)
 
+    /**
+     * Слова с границами в сэмплах относительно начала [samples]. Длинный кусок
+     * режется по тихой границе, как в [transcribeRange]; метки времени токенов
+     * каждого куска сдвигаются на его начало.
+     */
+    fun transcribeWords(samples: FloatArray): List<AsrWord> {
+        val words = ArrayList<AsrWord>()
+        var chunkStart = 0
+        while (chunkStart < samples.size) {
+            val maxEnd = minOf(chunkStart + maxChunkSamples, samples.size)
+            val chunkEnd = if (maxEnd >= samples.size) samples.size else findQuietBoundary(samples, chunkStart, maxEnd)
+            val stream = recognizer.createStream()
+            try {
+                stream.acceptWaveform(samples.copyOfRange(chunkStart, chunkEnd), sampleRate)
+                recognizer.decode(stream)
+                val result = recognizer.getResult(stream)
+                assembleWords(
+                    tokens = result.tokens,
+                    timestamps = result.timestamps,
+                    sampleRate = sampleRate,
+                    limitSamples = chunkEnd - chunkStart,
+                ).mapTo(words) { it.copy(startSample = it.startSample + chunkStart, endSample = it.endSample + chunkStart) }
+            } finally {
+                stream.release()
+            }
+            chunkStart = chunkEnd
+        }
+        return words
+    }
+
     fun transcribeRange(samples: FloatArray, startSample: Int, endSample: Int): String {
         require(startSample in 0..samples.size) {
             "startSample=$startSample вне диапазона 0..${samples.size}"

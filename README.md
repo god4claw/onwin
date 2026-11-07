@@ -64,4 +64,6 @@ A/B-замеры рефакторинга v2 (112 прогонов, BEFORE/AFTER
 
 VAD в шуме: порог Silero 0,35, сравнение с TEN VAD, проверка на новой выборке: [`docs/bench-vad-noise.md`](docs/bench-vad-noise.md).
 
+Метки времени слов: спикеры по словам, границы реплик, склейка ложных разрезов: [`docs/bench-word-timestamps.md`](docs/bench-word-timestamps.md).
+
 Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.

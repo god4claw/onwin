@@ -56,6 +56,9 @@ class SpeechBenchmarkTest {
             "speaker_change_threshold",
             defaults.speakerChangeThreshold,
         )
+        val changeWindowMs = positiveInt("speaker_change_window_ms", defaults.speakerChangeWindowMs)
+        val changeHopMs = positiveInt("speaker_change_hop_ms", defaults.speakerChangeHopMs)
+        val changeMinMs = nonNegativeInt("speaker_change_min_ms", defaults.speakerChangeMinSegmentMs)
         // 0 — подавать аудио так быстро, как примет транскрайбер (пропускная
         // способность); 1 — в реальном темпе, как живой микрофон (задержки).
         val pace = nonNegativeFloat("pace", 0f)
@@ -123,6 +126,9 @@ class SpeechBenchmarkTest {
                     clusterPruneMinMs = pruneMinMs,
                     clusterPruneMinFraction = pruneMinFraction,
                     speakerChangeThreshold = speakerChangeThreshold,
+                    speakerChangeWindowMs = changeWindowMs,
+                    speakerChangeHopMs = changeHopMs,
+                    speakerChangeMinSegmentMs = changeMinMs,
                     vad = vad,
                     agc = agc,
                     speakerReclusterThreshold = reclusterThreshold,
@@ -166,6 +172,9 @@ class SpeechBenchmarkTest {
                 pace = pace,
                 dumpEmbeddings = dumpEmbeddings,
                 reclusterThreshold = reclusterThreshold,
+                changeWindowMs = changeWindowMs,
+                changeHopMs = changeHopMs,
+                changeMinMs = changeMinMs,
             )
         } else {
             null
@@ -326,6 +335,9 @@ class SpeechBenchmarkTest {
         pace: Float,
         dumpEmbeddings: Boolean,
         reclusterThreshold: Float,
+        changeWindowMs: Int,
+        changeHopMs: Int,
+        changeMinMs: Int,
     ): StreamingResult {
         val transcriber = SherpaStreamingTranscriber(context)
         val loadStart = SystemClock.elapsedRealtime()
@@ -337,6 +349,9 @@ class SpeechBenchmarkTest {
                     clusterPruneMinMs = pruneMinMs,
                     clusterPruneMinFraction = pruneMinFraction,
                     speakerChangeThreshold = speakerChangeThreshold,
+                    speakerChangeWindowMs = changeWindowMs,
+                    speakerChangeHopMs = changeHopMs,
+                    speakerChangeMinSegmentMs = changeMinMs,
                     vad = vad,
                     agc = agc,
                     speakerReclusterThreshold = reclusterThreshold,

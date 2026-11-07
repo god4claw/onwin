@@ -205,6 +205,7 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             val splitter = SpeakerChangeSplitter(
                 SpeakerChangeConfig(
                     windowMs = config.speakerChangeWindowMs,
+                    hopMs = config.speakerChangeHopMs,
                     threshold = config.speakerChangeThreshold,
                     minSegmentMs = config.speakerChangeMinSegmentMs,
                 ),
@@ -229,7 +230,7 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
 
             val asr = AsrRunner(recognizer, VadSegmenter.SAMPLE_RATE)
             val processor = StreamingChunkProcessor(
-                transcribe = { samples -> asr.transcribe(samples) },
+                transcribeWords = { samples -> asr.transcribeWords(samples) },
                 embeddingOf = { samples -> extractEmbedding(embedder, samples) },
                 clusterer = clusterer,
                 splitter = splitter,
@@ -259,16 +260,15 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
 
             val worker = launch(Dispatchers.Default) {
                 try {
+                    var chunkIndex = 0
                     for (chunk in queue) {
                         pending.decrementAndGet()
                         currentCoroutineContext().ensureActive()
 
-                        // VAD-чанк может содержать несколько говорящих. Режем его
-                        // по смене embedding-а до ASR и кластеризации, иначе один
-                        // вектор на смешанный кусок ломает всю онлайн-диаризацию.
-                        for (piece in processor.split(chunk)) {
-                            currentCoroutineContext().ensureActive()
-                            val segment = processor.segment(piece) ?: continue
+                        // VAD-чанк может содержать несколько говорящих: процессор
+                        // распознаёт его целиком и делит текст по смене голоса на
+                        // границах слов, у каждой реплики — свой embedding и спикер.
+                        for (segment in processor.process(chunk, chunkIndex++)) {
                             produced += segment
                             send(StreamingEvent.Utterance(segment))
                         }
@@ -312,9 +312,12 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                     debugRecordsSink?.invoke(records)
                     // Онлайн-метки — предварительные: в Done спикеры пересчитываются
                     // по всем embedding-ам сессии разом.
-                    val final = SpeakerReclusterer(
+                    val relabeled = SpeakerReclusterer(
                         mergeThreshold = config.speakerReclusterThreshold,
                     ).relabel(records, expectedSpeakers)
+                    // Соседние реплики одного чанка с одним финальным спикером —
+                    // ложный разрез по смене голоса: склеиваем обратно.
+                    val final = mergeSameSpeakerNeighbors(relabeled, records.map { it.chunkIndex })
                     trace?.invoke(
                         "stream done segments=${final.size} " +
                             "speakers online=${produced.map { it.speaker }.distinct().size}" +

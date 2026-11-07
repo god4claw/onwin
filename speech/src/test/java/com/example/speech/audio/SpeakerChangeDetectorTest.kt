@@ -101,60 +101,25 @@ class SpeakerChangeDetectorTest {
     }
 
     @Test
-    fun `splitter cuts a chunk into contiguous pieces`() {
-        val config = SpeakerChangeConfig(
-            windowMs = 800,
-            hopMs = 400,
-            minSegmentMs = 600,
-            threshold = 0.5f,
-            energySearchMs = 0,
-        )
+    fun `splitter finds the boundary between two voices without cutting audio`() {
+        val config = SpeakerChangeConfig(windowMs = 800, hopMs = 400, minSegmentMs = 600, threshold = 0.5f)
         val splitter = SpeakerChangeSplitter(config)
-        val chunk = SpeechChunk(
-            startSample = 1_000L,
-            samples = FloatArray(4_800 * 16) { index ->
-                if (index < 2_400 * 16) 0.5f else -0.5f
-            },
-        )
+        // 2,4 с первого голоса, затем 2,4 с второго.
+        val samples = FloatArray(4_800 * 16) { index -> if (index < 2_400 * 16) 0.5f else -0.5f }
 
-        val pieces = splitter.split(chunk) { samples ->
-            if (samples.first() > 0f) {
-                floatArrayOf(1f, 0f)
-            } else {
-                floatArrayOf(0f, 1f)
-            }
+        val boundaries = splitter.findBoundaries(samples) { window ->
+            if (window.first() > 0f) floatArrayOf(1f, 0f) else floatArrayOf(0f, 1f)
         }
 
-        assertEquals(2, pieces.size)
-        assertEquals(1_000L, pieces[0].startSample)
-        assertEquals(1_000L + 41_600L, pieces[1].startSample)
-        assertEquals(41_600, pieces[0].samples.size)
-        assertEquals(4_800 * 16 - 41_600, pieces[1].samples.size)
-
-        val joined = FloatArray(chunk.samples.size)
-        var offset = 0
-        for (piece in pieces) {
-            piece.samples.copyInto(joined, offset)
-            offset += piece.samples.size
-        }
-        assertTrue(chunk.samples.contentEquals(joined))
+        assertEquals(1, boundaries.size)
+        // Окно 0,8 с, шаг 0,4 с: точка между окнами, накрывающими смену, ~2,4 с ± шаг.
+        assertTrue("boundary at ${boundaries[0] / 16} ms", boundaries[0] in (2_000 * 16)..(2_800 * 16))
     }
 
     @Test
-    fun `short chunk is not split`() {
-        val config = SpeakerChangeConfig(
-            windowMs = 1_600,
-            hopMs = 800,
-            minSegmentMs = 1_500,
-            threshold = 0.45f,
-            energySearchMs = 0,
-        )
-        val splitter = SpeakerChangeSplitter(config)
-        val chunk = SpeechChunk(startSample = 0L, samples = FloatArray(1_000))
+    fun `short chunk has no boundaries`() {
+        val splitter = SpeakerChangeSplitter(SpeakerChangeConfig())
 
-        val pieces = splitter.split(chunk) { floatArrayOf(1f, 0f) }
-
-        assertEquals(1, pieces.size)
-        assertEquals(1_000, pieces[0].samples.size)
+        assertTrue(splitter.findBoundaries(FloatArray(1_000)) { floatArrayOf(1f, 0f) }.isEmpty())
     }
 }
