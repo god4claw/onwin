@@ -3,7 +3,6 @@ package com.example.onwin.ui.screens.recording
 import android.content.ActivityNotFoundException
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,6 +24,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.onwin.R
+import com.example.onwin.data.export.TranscriptExportFormat
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.RecordingPhase
 import com.example.onwin.ui.components.OnWinDialog
@@ -54,16 +54,18 @@ internal fun ActiveRecordingRoute(
     var cancelling by rememberSaveable { mutableStateOf(false) }
     var lastElapsed by rememberSaveable { mutableLongStateOf(0L) }
     var editingSpeaker by rememberSaveable(viewModel.sessionId) { mutableStateOf<Int?>(null) }
-    var pickingJson by rememberSaveable(viewModel.sessionId) { mutableStateOf(false) }
-    val jsonPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        pickingJson = false
-        if (uri != null) viewModel.exportTranscript(uri)
-    }
 
+    var showExportFormats by rememberSaveable(viewModel.sessionId) { mutableStateOf(false) }
+    var pendingExportFormat by rememberSaveable(viewModel.sessionId) { mutableStateOf<String?>(null) }
+    val exportPicker = rememberLauncherForActivityResult(TranscriptDocumentContract) { uri ->
+        val format = pendingExportFormat?.let(TranscriptExportFormat::valueOf)
+        pendingExportFormat = null
+        if (uri != null && format != null) viewModel.exportTranscript(uri, format)
+    }
     LaunchedEffect(viewModel, lifecycle, context) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             viewModel.exportResults.collect { saved ->
-                val message = if (saved) R.string.recording_json_saved else R.string.recording_json_save_failed
+                val message = if (saved) R.string.recording_export_saved else R.string.recording_export_save_failed
                 Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             }
         }
@@ -96,7 +98,7 @@ internal fun ActiveRecordingRoute(
         ActiveRecordingScreen(
             modifier = modifier,
             panelSlot = panelSlot,
-            panelDimmed = speakerToEdit != null || showCancelConfirmation,
+            panelDimmed = speakerToEdit != null || showCancelConfirmation || showExportFormats,
             detail = detail,
             loaded = state.loaded,
             elapsedMs = elapsed,
@@ -117,21 +119,27 @@ internal fun ActiveRecordingRoute(
                 cancelling = false
                 viewModel.retry()
             },
-            exportInProgress = pickingJson || exporting,
-            onExportJson = completedSession?.let { session ->
-                {
-                    if (!pickingJson && !viewModel.isExporting.value) {
-                        pickingJson = true
+            exportInProgress = pendingExportFormat != null || exporting,
+            onExport = completedSession?.let { { showExportFormats = true } },
+        )
+
+        if (showExportFormats && completedSession != null) {
+            TranscriptExportDialog(
+                onDismiss = { showExportFormats = false },
+                onFormatSelected = { format ->
+                    if (pendingExportFormat == null && !viewModel.isExporting.value) {
+                        showExportFormats = false
+                        pendingExportFormat = format.name
                         try {
-                            jsonPicker.launch(transcriptFileName(session.title))
+                            exportPicker.launch(TranscriptDocumentRequest(format, completedSession.title))
                         } catch (_: ActivityNotFoundException) {
-                            pickingJson = false
-                            Toast.makeText(context, R.string.recording_json_picker_unavailable, Toast.LENGTH_SHORT).show()
+                            pendingExportFormat = null
+                            Toast.makeText(context, R.string.recording_export_picker_unavailable, Toast.LENGTH_SHORT).show()
                         }
                     }
-                }
-            },
-        )
+                },
+            )
+        }
         if (speakerToEdit != null && detail != null) {
             val defaultName = stringResource(R.string.speaker_default, speakerToEdit + 1)
             val customName = detail.speakerNames.firstOrNull { it.speaker == speakerToEdit }?.name
@@ -186,11 +194,4 @@ internal fun ActiveRecordingRoute(
             }
         }
     }
-}
-
-private val invalidFileNameCharacters = Regex("""[\\/:*?"<>|\p{Cntrl}]""")
-
-private fun transcriptFileName(title: String): String {
-    val name = title.trim().replace(invalidFileNameCharacters, "_").trimEnd('.', ' ')
-    return "${name.ifEmpty { "transcript" }}.json"
 }

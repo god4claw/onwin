@@ -75,9 +75,9 @@ internal fun Modifier.onWinDialogBackdrop() = drawWithContent {
 @Composable
 internal fun OnWinDialog(
     title: String,
-    icon: Painter,
-    confirmText: String,
-    onConfirm: () -> Unit,
+    icon: Painter? = null,
+    confirmText: String? = null,
+    onConfirm: () -> Unit = {},
     onDismiss: () -> Unit,
     destructive: Boolean = false,
     confirmEnabled: Boolean = true,
@@ -123,8 +123,10 @@ internal fun OnWinDialog(
                 .padding(start = 23.dp, top = 24.dp, end = 23.dp, bottom = 23.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            DialogIcon(icon, destructive)
-            Spacer(Modifier.height(14.dp))
+            if (icon != null) {
+                DialogIcon(icon, destructive)
+                Spacer(Modifier.height(14.dp))
+            }
             Text(
                 text = title,
                 modifier = Modifier.semantics { heading() },
@@ -134,8 +136,10 @@ internal fun OnWinDialog(
             )
             Spacer(Modifier.height(if (destructive) 14.dp else 20.dp))
             content()
-            Spacer(Modifier.height(if (destructive) 22.dp else 19.dp))
-            DialogActions(confirmText, dismissText, onConfirm, onDismiss, destructive, confirmEnabled, dismissEnabled)
+            if (confirmText != null) {
+                Spacer(Modifier.height(if (destructive) 22.dp else 19.dp))
+                DialogActions(confirmText, dismissText, onConfirm, onDismiss, destructive, confirmEnabled, dismissEnabled)
+            }
         }
     }
 }

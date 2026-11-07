@@ -244,13 +244,13 @@ class ActiveRecordingScreenTest {
                         playback = RecordingPlaybackState(durationMs = 60_000),
                         onTogglePlayback = {},
                         onSeekPlayback = {},
-                        onExportJson = {},
+                        onExport = {},
                     )
                 }
             }
         }
 
-        compose.onNodeWithText("Сохранить JSON").assertIsDisplayed()
+        compose.onNodeWithText("Экспорт в документ").assertIsDisplayed()
         compose.onNodeWithContentDescription("Воспроизвести аудио").assertIsDisplayed()
         // Скроллится только лента реплик: у страницы своего скролла больше нет.
         assertEquals(1, compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes().size)

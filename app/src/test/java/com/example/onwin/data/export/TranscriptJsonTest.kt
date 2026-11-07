@@ -1,4 +1,4 @@
-package com.example.onwin.data.transcription
+package com.example.onwin.data.export
 
 import com.example.onwin.domain.model.TranscriptSegment
 import kotlinx.serialization.json.Json

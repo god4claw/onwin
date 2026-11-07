@@ -105,7 +105,7 @@ internal fun ActiveRecordingScreen(
     onSeekPlayback: (Long) -> Unit = {},
     onRetry: () -> Unit = {},
     exportInProgress: Boolean = false,
-    onExportJson: (() -> Unit)? = null,
+    onExport: (() -> Unit)? = null,
     panelSlot: NavigationPanelSlot? = null,
     panelDimmed: Boolean = false,
 ) {
@@ -169,11 +169,11 @@ internal fun ActiveRecordingScreen(
                             onRenameSpeaker = onRenameSpeaker,
                             onSeek = onSeekPlayback,
                         )
-                        if (detail.session.status == SessionStatus.DONE && onExportJson != null) {
+                        if (detail.session.status == SessionStatus.DONE && onExport != null) {
                             Spacer(Modifier.height(8.dp))
                             GlassButton(
-                                text = stringResource(R.string.recording_save_json),
-                                onClick = onExportJson,
+                                text = stringResource(R.string.recording_export),
+                                onClick = onExport,
                                 modifier = Modifier.align(Alignment.CenterHorizontally),
                                 enabled = !exportInProgress,
                             )

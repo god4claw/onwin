@@ -11,7 +11,8 @@ import com.example.onwin.MainActivity
 import com.example.onwin.OnWinApp
 import com.example.onwin.ProcessingTestEntryPoint
 import com.example.onwin.data.audio.WavWriter
-import com.example.onwin.data.transcription.TranscriptJsonExporter
+import com.example.onwin.data.export.TranscriptExportFormat
+import com.example.onwin.data.export.TranscriptExporter
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.RecordingPhase
@@ -64,7 +65,7 @@ class ProcessingServiceDeviceTest {
                 val sessionId = checkNotNull(id)
                 assertDone(sessionId, SessionSource.IMPORT)
                 val detail = checkNotNull(repository.observeSession(sessionId).first())
-                TranscriptJsonExporter(context).write(Uri.fromFile(output), detail.segments)
+                TranscriptExporter(context).write(Uri.fromFile(output), TranscriptExportFormat.JSON, detail)
                 val exported = Json.parseToJsonElement(output.readText()).jsonObject
                     .getValue("transcript").jsonArray
                 assertEquals(detail.segments.size, exported.size)

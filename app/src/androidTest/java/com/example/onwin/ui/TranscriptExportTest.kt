@@ -25,7 +25,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.onwin.data.database.AppDatabase
 import com.example.onwin.data.repository.RoomSessionRepository
-import com.example.onwin.data.transcription.TranscriptJsonExporter
+import com.example.onwin.data.export.TranscriptExporter
 import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.SessionSource
@@ -72,7 +72,7 @@ class TranscriptExportTest {
             SavedStateHandle(mapOf("sessionId" to session.id)),
             repository,
             IdleController,
-            TranscriptJsonExporter(context),
+            TranscriptExporter(context),
         )
         val picker = TestPicker(context)
         val resolver = context.contentResolver
@@ -87,7 +87,7 @@ class TranscriptExportTest {
                     ActiveRecordingRoute(onBack = {}, viewModel = viewModel)
                 }
             }
-            val button = compose.onNodeWithText("Сохранить JSON")
+            val button = compose.onNodeWithText("Экспорт в документ")
             compose.waitUntil(timeoutMillis = 5_000) {
                 compose.onNodeWithText("Черновик").isDisplayed()
             }
@@ -105,20 +105,32 @@ class TranscriptExportTest {
                 repository.updateStatus(session.id, SessionStatus.DONE)
             }
             compose.waitUntil(timeoutMillis = 5_000) { button.isDisplayed() }
-            button.performClick()
-            button.assertIsNotEnabled()
-            compose.runOnIdle {
-                assertEquals(Intent.ACTION_CREATE_DOCUMENT, picker.intent.action)
-                assertEquals("application/json", picker.intent.type)
-                assertEquals("Встреча_ план_факт.json", picker.intent.getStringExtra(Intent.EXTRA_TITLE))
-                picker.finish()
+            val formats = listOf(
+                Triple("JSON", "application/json", "json"),
+                Triple("PDF", "application/pdf", "pdf"),
+                Triple("Markdown", "text/markdown", "md"),
+                Triple("TXT", "text/plain", "txt"),
+            )
+            for ((label, mime, extension) in formats) {
+                button.performClick()
+                compose.onNodeWithText("Выберите формат").assertExists()
+                for (option in formats) compose.onNodeWithText(option.first).assertIsEnabled()
+                compose.onNodeWithText(label).performClick()
+                button.assertIsNotEnabled()
+                compose.runOnIdle {
+                    assertEquals(Intent.ACTION_CREATE_DOCUMENT, picker.intent.action)
+                    assertTrue(picker.intent.hasCategory(Intent.CATEGORY_OPENABLE))
+                    assertEquals(mime, picker.intent.type)
+                    assertEquals("Встреча_ план_факт.$extension", picker.intent.getStringExtra(Intent.EXTRA_TITLE))
+                    picker.finish()
+                }
+                button.assertIsEnabled()
             }
-            button.assertIsEnabled()
 
             button.performClick()
+            compose.onNodeWithText("JSON").performClick()
             compose.runOnIdle {
                 picker.finish(Uri.parse("content://com.example.onwin.missing/transcript.json"))
-                assertTrue(viewModel.isExporting.value)
             }
             compose.waitUntil(timeoutMillis = 5_000) { !viewModel.isExporting.value }
             button.assertIsEnabled()
@@ -135,6 +147,7 @@ class TranscriptExportTest {
             )
             destination = uri
             button.performClick()
+            compose.onNodeWithText("JSON").performClick()
             compose.runOnIdle { picker.finish(uri) }
             compose.waitUntil(timeoutMillis = 5_000) { !viewModel.isExporting.value }
             button.assertIsEnabled()

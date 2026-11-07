@@ -6,7 +6,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
-import com.example.onwin.data.transcription.TranscriptJsonExporter
+import com.example.onwin.data.export.TranscriptExportFormat
+import com.example.onwin.data.export.TranscriptExporter
 import com.example.onwin.domain.model.SessionDetail
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.ProcessingController
@@ -41,7 +42,7 @@ class RecordingViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: SessionRepository,
     private val controller: ProcessingController,
-    private val transcriptExporter: TranscriptJsonExporter,
+    private val transcriptExporter: TranscriptExporter,
 ) : ViewModel() {
     val sessionId: String = savedStateHandle.toRoute<ActiveRecordingDestination>().sessionId
 
@@ -60,13 +61,13 @@ class RecordingViewModel @Inject constructor(
     private val exportResult = Channel<Boolean>(Channel.BUFFERED)
     internal val exportResults = exportResult.receiveAsFlow()
 
-    internal fun exportTranscript(destination: Uri) {
+    internal fun exportTranscript(destination: Uri, format: TranscriptExportFormat) {
         if (!exporting.compareAndSet(expect = false, update = true)) return
         viewModelScope.launch {
             val saved = try {
                 val detail = repository.observeSession(sessionId).first()
                 if (detail?.session?.status == SessionStatus.DONE) {
-                    transcriptExporter.write(destination, detail.segments)
+                    transcriptExporter.write(destination, format, detail)
                     true
                 } else {
                     false

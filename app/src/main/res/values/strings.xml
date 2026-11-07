@@ -24,6 +24,7 @@
     <string name="recordings_all">Все записи</string>
     <string name="recordings_collapse">Свернуть записи</string>
     <string name="recordings_capture_title">Запишите аудио или\nимпортируйте его</string>
+    <string name="recordings_capture_active_title">Остановите запись или\nимпортируйте аудио</string>
     <string name="recordings_import_device">Импортировать с устройства</string>
     <string name="recordings_importing">Подготовка файла…</string>
     <string name="recordings_import_failed">Не удалось импортировать аудиофайл.</string>
@@ -94,10 +95,11 @@
     <string name="recording_start_failed">Не удалось начать запись.</string>
     <string name="active_recording_status">Запись…</string>
     <string name="recording_processing">Обработка…</string>
-    <string name="recording_save_json">Сохранить JSON</string>
-    <string name="recording_json_saved">Расшифровка сохранена.</string>
-    <string name="recording_json_save_failed">Не удалось сохранить JSON. Попробуйте ещё раз.</string>
-    <string name="recording_json_picker_unavailable">Не удалось открыть выбор места для сохранения.</string>
+    <string name="recording_export">Экспорт в документ</string>
+    <string name="recording_export_format_title">Выберите формат</string>
+    <string name="recording_export_saved">Расшифровка сохранена.</string>
+    <string name="recording_export_save_failed">Не удалось сохранить расшифровку. Попробуйте ещё раз.</string>
+    <string name="recording_export_picker_unavailable">Не удалось открыть выбор места для сохранения.</string>
     <string name="recording_background_note">Запись продолжится, если свернуть\nприложение или выключить экран</string>
     <string name="recording_stop_heading">Запись идёт\nОстановите её кнопкой</string>
     <string name="recording_stop">Остановить запись</string>

@@ -15,7 +15,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.onwin.data.database.AppDatabase
 import com.example.onwin.data.repository.RoomSessionRepository
-import com.example.onwin.data.transcription.TranscriptJsonExporter
+import com.example.onwin.data.export.TranscriptExporter
 import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.SessionSource
@@ -82,7 +82,7 @@ class RecordingCancellationTest {
                 SavedStateHandle(mapOf("sessionId" to session.id)),
                 repository,
                 controller,
-                TranscriptJsonExporter(context),
+                TranscriptExporter(context),
             )
             try {
                 compose.setContent { ActiveRecordingRoute(onBack = {}, viewModel = viewModel) }
