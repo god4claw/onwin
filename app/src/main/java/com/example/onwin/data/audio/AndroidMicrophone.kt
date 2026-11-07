@@ -1,6 +1,7 @@
 package com.example.onwin.data.audio
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioFormat
@@ -20,6 +21,7 @@ internal class AndroidMicrophone(
         ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
 
+    @SuppressLint("MissingPermission")
     override fun create(sampleRate: Int): PcmCapture? {
         if (!hasRecordPermission()) {
             throw SecurityException("Microphone permission required")
