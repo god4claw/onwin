@@ -12,6 +12,7 @@ import com.example.speech.audio.VadSegmenter
 import com.example.speech.audio.WavReader
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
@@ -20,8 +21,12 @@ import java.io.File
 
 /**
  * Расшифровка файла тем же пайплайном, что и streaming: АРУ → Silero VAD →
- * GigaAM по репликам → CAM++ → перекластеризация спикеров по всей записи.
- * Файл подаётся целиком без пауз, наружу — обычный контракт [Transcriber].
+ * GigaAM по репликам → speaker embedding (ERes2Net) → перекластеризация спикеров по всей записи.
+ * Файл подаётся без пауз, наружу — обычный контракт [Transcriber].
+ *
+ * Файл читается кусками по 0,5 с прямо в пайплайн (очередь ASR даёт обратное
+ * давление), поэтому память не зависит от длины записи: лимит — 12 часов
+ * ([MAX_FILE_DURATION_MS]); за сессию копятся только реплики и их embedding-и.
  *
  * Чем лучше [SherpaTranscriber] (pyannote + FastClustering) на наших замерах
  * (golden set + отложенная выборка, синтетика; docs/bench-vad-transcriber.md):
@@ -59,10 +64,8 @@ class SherpaVadTranscriber(context: Context) : Transcriber, StreamingTranscriber
             return@channelFlow
         }
 
-        val samples = try {
-            WavReader.readMono16k(wav).also {
-                require(it.isNotEmpty()) { "В файле нет аудиоданных: ${wav.absolutePath}" }
-            }
+        val wavStream = try {
+            WavReader.open(wav, MAX_FILE_DURATION_MS)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -70,18 +73,31 @@ class SherpaVadTranscriber(context: Context) : Transcriber, StreamingTranscriber
             return@channelFlow
         }
 
-        val totalMs = (samples.size * 1000L / VadSegmenter.SAMPLE_RATE).coerceAtLeast(1L)
+        val totalMs = wavStream.durationMs.coerceAtLeast(1L)
         send(TranscriptionEvent.Progress(Stage.RECOGNITION, 0f))
 
+        // Ошибка чтения посреди файла дойдёт до engine и вернётся как Failed.
         val audio = flow {
-            var offset = 0
-            while (offset < samples.size) {
-                val end = minOf(offset + CHUNK_SAMPLES, samples.size)
-                emit(samples.copyOfRange(offset, end))
-                offset = end
+            while (true) {
+                val chunk = FloatArray(CHUNK_SAMPLES)
+                val read = wavStream.read(chunk)
+                if (read <= 0) break
+                emit(if (read == chunk.size) chunk else chunk.copyOf(read))
             }
         }
 
+        try {
+            collectEvents(audio, expectedSpeakers, totalMs)
+        } finally {
+            wavStream.close()
+        }
+    }.flowOn(Dispatchers.IO)
+
+    private suspend fun ProducerScope<TranscriptionEvent>.collectEvents(
+        audio: Flow<FloatArray>,
+        expectedSpeakers: Int?,
+        totalMs: Long,
+    ) {
         engine.transcribeStream(audio, expectedSpeakers).collect { event ->
             when (event) {
                 is StreamingEvent.SpeechStarted -> Unit
@@ -96,7 +112,7 @@ class SherpaVadTranscriber(context: Context) : Transcriber, StreamingTranscriber
                 is StreamingEvent.Failed -> send(TranscriptionEvent.Failed(event.cause))
             }
         }
-    }.flowOn(Dispatchers.IO)
+    }
 
     override fun release() = engine.release()
 
@@ -109,5 +125,11 @@ class SherpaVadTranscriber(context: Context) : Transcriber, StreamingTranscriber
 
         /** 0,5 с — VAD и очередь ASR принимают любой размер, это лишь шаг подачи. */
         const val CHUNK_SAMPLES = VadSegmenter.SAMPLE_RATE / 2
+
+        /**
+         * 12 часов: с запасом над худшим случаем (8 ч). Память от длины не зависит;
+         * позиции VAD в sherpa-onnx — int32, это ~37 ч при 16 кГц.
+         */
+        const val MAX_FILE_DURATION_MS = 12L * 60L * 60L * 1000L
     }
 }

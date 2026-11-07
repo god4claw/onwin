@@ -119,4 +119,6 @@ ERes2Net вместо CAM++ для спикеров, набор живых ди�
 
 GigaAM-v3 e2e RNN-T вместо e2e CTC: пять версий модели, эмулятор, числа и латиница: [`docs/bench-asr-rnnt.md`](docs/bench-asr-rnnt.md).
 
+Длинные записи: чтение WAV кусками и перекластеризация на час и больше, проверка на 76 минутах: [`docs/bench-long-audio.md`](docs/bench-long-audio.md).
+
 Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.

@@ -21,6 +21,8 @@ score_wer.py               WER of a benchmark JSON against turns.jsonl / txt
 stream_report.py           one table: WER, DER, speaker error, latency, lag, RTF
 run_golden.sh              benchmark.sh over the whole golden set + report
 recluster_sim.py           host copy of SpeakerReclusterer: tune on --dump-embeddings JSONs
+make_long.py               concatenate set WAVs (+ refs, block map) into one long recording
+score_long.py              WER per block + speaker error with one mapping for a long recording
 ```
 
 ## Datasets used

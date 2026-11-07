@@ -148,6 +148,65 @@ class SpeakerReclustererTest {
     }
 
     @Test
+    fun `cached merging gives exactly the labels of the full pair search`() {
+        // Сессии до maxItems реплик: новая реализация обязана совпасть с прежней один в один.
+        val rnd = Random(7)
+        repeat(30) { seed ->
+            val speakers = 1 + rnd.nextInt(5)
+            val voices = List(speakers) { FloatArray(16) { rnd.nextFloat() - 0.5f } }
+            val noise = 0.05f + rnd.nextFloat() * 0.6f
+            var t = 0L
+            var voice = 0
+            val records = List(20 + rnd.nextInt(280)) {
+                if (rnd.nextFloat() < 0.4f) voice = rnd.nextInt(speakers)
+                val duration = 300L + rnd.nextInt(6_000)
+                val base = voices[voice]
+                val embedding = if (rnd.nextFloat() < 0.1f) null else FloatArray(base.size) { base[it] + (rnd.nextFloat() - 0.5f) * 2 * noise }
+                SegmentRecord(
+                    segment = Segment(speaker = rnd.nextInt(3), startMs = t, endMs = t + duration, text = "s$seed-$it"),
+                    embedding = embedding,
+                ).also { t += duration + rnd.nextInt(800) }
+            }
+            val configs = listOf(
+                Triple(0.65f, 0f, null), Triple(0.5f, 0f, null), Triple(0.65f, 0.15f, null),
+                Triple(0.65f, 0.15f, 2), Triple(0.65f, 0f, 3),
+            )
+            for ((threshold, share, expected) in configs) {
+                val reference = ReferenceReclusterer(mergeThreshold = threshold, minSpeakerShare = share).relabel(records, expected)
+                val actual = SpeakerReclusterer(mergeThreshold = threshold, minSpeakerShare = share).relabel(records, expected)
+                assertEquals("seed $seed threshold $threshold share $share expected $expected", reference, actual)
+            }
+        }
+    }
+
+    @Test
+    fun `twenty thousand segments with wrong online labels keep speakers apart`() {
+        // 20 000 реплик трёх человек (много часов речи), онлайн-метки чередуются наугад.
+        // Прежняя склейка соседей по меткам сливала бы разных людей.
+        val rnd = Random(11)
+        val voices = listOf(A, B, C)
+        var voice = 0
+        val truth = IntArray(20_000)
+        val records = List(truth.size) { i ->
+            if (rnd.nextFloat() < 0.35f) voice = rnd.nextInt(3)
+            truth[i] = voice
+            record(i * 1_440L, i * 1_440L + 1_200, voices[voice], online = i % 2, noise = 0.25f)
+        }
+
+        val startedAt = System.nanoTime()
+        val labels = SpeakerReclusterer().relabel(records).map { it.speaker }
+        val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+
+        assertEquals(3, labels.toSet().size)
+        val mapping = labels.indices.groupBy { labels[it] }.mapValues { (_, idx) ->
+            idx.groupingBy { truth[it] }.eachCount().maxBy { it.value }.key
+        }
+        val correct = labels.indices.count { mapping.getValue(labels[it]) == truth[it] }
+        assertTrue("accuracy $correct / ${labels.size}", correct >= labels.size * 0.99)
+        assertTrue("took $elapsedMs ms", elapsedMs < 15_000)
+    }
+
+    @Test
     fun `a long session stays fast and correct`() {
         // ~1,5 ч диалога: 2000 реплик. Больше maxItems — сначала склейка соседей.
         val records = (0 until 2_000).map { i ->
