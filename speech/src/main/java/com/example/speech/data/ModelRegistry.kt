@@ -2,7 +2,7 @@ package com.example.speech.data
 
 import com.example.speech.api.EmbeddingModel
 
-data class ModelFile(
+internal data class ModelFile(
     val id: String,
     val assetPath: String,
     val sizeBytes: Long,
@@ -11,7 +11,13 @@ data class ModelFile(
     val fileName: String get() = assetPath.substringAfterLast('/')
 }
 
-object ModelRegistry {
+/**
+ * Каталог весов: размеры и SHA-256 для проверки целостности.
+ *
+ * `internal`: снаружи модуля веса не скачиваются и не проверяются — это
+ * деталь реализации `BundledModels`.
+ */
+internal object ModelRegistry {
 
     val ASR = ModelFile(
         id = "asr_gigaam_v3",

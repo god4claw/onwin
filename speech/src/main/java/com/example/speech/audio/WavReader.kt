@@ -10,11 +10,26 @@ internal object WavReader {
     private const val HEADER_SIZE = 44
     private const val SAMPLE_RATE = 16_000
     private const val MAX_DURATION_MS = 60L * 60L * 1000L
-    private const val MAX_SAMPLES = (MAX_DURATION_MS * SAMPLE_RATE / 1000L).toInt()
     private const val WAVE_FORMAT_PCM = 1
 
-    fun readMono16k(file: File): FloatArray {
+    /**
+     * Читает канонический WAV 16 кГц / моно / PCM16.
+     *
+     * Аудио целиком живёт в памяти как `FloatArray`, поэтому длительность
+     * ограничена: 60 минут — это ~230 МБ, что уже на грани OOM на бюджетном
+     * устройстве. Лимит вынесен параметром, чтобы его можно было уменьшить
+     * (или проверить в тесте) без правки кода.
+     *
+     * Если файл оказался короче объявленного `data`-чанка, возвращается
+     * только реально прочитанное: нулевой «хвост» не должен уходить в ASR.
+     */
+    fun readMono16k(
+        file: File,
+        maxDurationMs: Long = MAX_DURATION_MS,
+    ): FloatArray {
         require(file.isFile) { "WAV-файл не найден: ${file.absolutePath}" }
+        require(maxDurationMs > 0L) { "maxDurationMs должен быть > 0, получено $maxDurationMs" }
+        val maxSamples = maxDurationMs * SAMPLE_RATE / 1000L
 
         RandomAccessFile(file, "r").use { raf ->
             val fileLength = raf.length()
@@ -79,8 +94,9 @@ internal object WavReader {
 
             val totalSamples = (dataSize / 2).toInt()
             require(totalSamples > 0) { "В WAV нет аудиоданных" }
-            require(totalSamples <= MAX_SAMPLES) {
-                "Аудио длиннее 60 минут (${totalSamples / SAMPLE_RATE / 60} мин)"
+            require(totalSamples <= maxSamples) {
+                "Аудио длиннее заданного лимита $maxDurationMs мс " +
+                    "(в файле ${totalSamples * 1000L / SAMPLE_RATE} мс)"
             }
 
             raf.seek(HEADER_SIZE.toLong())
@@ -102,7 +118,7 @@ internal object WavReader {
                 remaining -= read
             }
 
-            return samples
+            return if (sampleIndex == totalSamples) samples else samples.copyOf(sampleIndex)
         }
     }
 

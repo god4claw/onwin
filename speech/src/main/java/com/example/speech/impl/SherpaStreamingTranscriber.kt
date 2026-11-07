@@ -26,12 +26,29 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+/**
+ * Псевдостриминг v2: Silero VAD режет поток на реплики, после чего каждая
+ * реплика распознаётся offline-моделью целиком.
+ *
+ * Это не настоящий streaming: промежуточных гипотез (`Partial`) здесь нет,
+ * текст приходит только после конца реплики. Настоящий streaming появился в v3
+ * (online-модель, `OnlineStream.acceptWaveform` + `decode`).
+ *
+ * Устройство:
+ * - VAD-гейт принимает аудио и отдаёт готовые чанки;
+ * - [StreamingChunkProcessor] режет чанк по смене говорящего, распознаёт куски
+ *   и назначает спикера;
+ * - готовые реплики уходят в `Utterance`, в конце — `Done`.
+ *
+ * Жизненный цикл моделей:
+ * - [load] и [transcribeStream] сериализованы одним mutex;
+ * - второй стрим не ждёт молча, а получает `Failed(«занято»)`;
+ * - [release] во время стрима откладывается до его конца.
+ */
 class SherpaStreamingTranscriber(private val context: Context) : StreamingTranscriber {
 
-    private val loadMutex = Mutex()
     private val sessionMutex = Mutex()
 
     @Volatile private var recognizer: OfflineRecognizer? = null
@@ -39,16 +56,30 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
     @Volatile private var embeddingExtractor: SpeakerEmbeddingExtractor? = null
     @Volatile private var loadedConfig: SpeechConfig? = null
 
-    override suspend fun load(config: SpeechConfig) = withContext(Dispatchers.IO) {
-        require(config.numThreads >= 1) { "numThreads должен быть >= 1" }
+    private val releaseGate = ReleaseGate(
+        releaseModels = { releaseLocked() },
+        tryAcquire = { sessionMutex.tryLock() },
+        unlock = { sessionMutex.unlock() },
+    )
 
-        loadMutex.withLock {
-            if (loadedConfig == config &&
+    override suspend fun load(config: SpeechConfig) = withContext(Dispatchers.IO) {
+        // Один mutex и на загрузку, и на сессию: иначе load() мог бы выгрузить
+        // модели под работающим стримом. Пока стрим идёт, load() честно ждёт.
+        // endLoad() отпускает mutex под handoff-локом и при успешной загрузке
+        // отменяет отложенный release(): новая загрузка важнее старого release().
+        sessionMutex.lock()
+        var loadSucceeded = false
+        try {
+            if (loadedConfig?.streamingModelsMatch(config) == true &&
                 recognizer != null &&
                 vad != null &&
                 embeddingExtractor != null
             ) {
-                return@withLock
+                // Модели те же: обновляем конфиг, чтобы новые runtime-параметры
+                // применились без перезагрузки 350 МБ весов.
+                loadedConfig = config
+                loadSucceeded = true
+                return@withContext
             }
 
             val appContext = context.applicationContext
@@ -97,11 +128,25 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             vad = newVad
             embeddingExtractor = newEmbedder
             loadedConfig = config
+            loadSucceeded = true
+        } finally {
+            releaseGate.endLoad(cancelPending = loadSucceeded)
         }
     }
 
     override fun transcribeStream(audio: Flow<FloatArray>): Flow<StreamingEvent> = channelFlow {
-        sessionMutex.withLock {
+        // Второй стрим не ждёт первый молча, а честно сообщает, что занято:
+        // у микрофона ожидание может длиться бесконечно.
+        if (!sessionMutex.tryLock()) {
+            send(
+                StreamingEvent.Failed(
+                    IllegalStateException("Уже идёт другая streaming-сессия. Дождитесь её конца."),
+                ),
+            )
+            return@channelFlow
+        }
+
+        try {
             val config = loadedConfig
             val recognizer = recognizer
             val vad = vad
@@ -115,7 +160,7 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                         ),
                     ),
                 )
-                return@withLock
+                return@channelFlow
             }
 
             vad.reset()
@@ -124,45 +169,36 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                 maxSpeakers = config.maxOnlineSpeakers,
                 minNewSpeakerSamples = MIN_NEW_SPEAKER_SAMPLES,
             )
-            val changeSplitter = SpeakerChangeSplitter(
+            val splitter = SpeakerChangeSplitter(
                 SpeakerChangeConfig(
                     windowMs = config.speakerChangeWindowMs,
                     threshold = config.speakerChangeThreshold,
                     minSegmentMs = config.speakerChangeMinSegmentMs,
                 ),
             )
+            val asr = AsrRunner(recognizer, VadSegmenter.SAMPLE_RATE)
+            val processor = StreamingChunkProcessor(
+                transcribe = { samples -> asr.transcribe(samples) },
+                embeddingOf = { samples -> extractEmbedding(embedder, samples) },
+                clusterer = clusterer,
+                splitter = splitter,
+            )
+
             val queue = Channel<SpeechChunk>(capacity = ASR_QUEUE_CAPACITY)
             val produced = ArrayList<Segment>()
             var workerFailure: Throwable? = null
 
             val worker = launch(Dispatchers.Default) {
                 try {
-                    val asr = AsrRunner(recognizer, VadSegmenter.SAMPLE_RATE)
                     for (chunk in queue) {
                         currentCoroutineContext().ensureActive()
 
                         // VAD-чанк может содержать несколько говорящих. Режем его
                         // по смене embedding-а до ASR и кластеризации, иначе один
                         // вектор на смешанный кусок ломает всю онлайн-диаризацию.
-                        val pieces = changeSplitter.split(chunk) { samples ->
-                            extractEmbedding(embedder, samples)
-                        }
-                        for (piece in pieces) {
+                        for (piece in processor.split(chunk)) {
                             currentCoroutineContext().ensureActive()
-
-                            val text = asr.transcribe(piece.samples)
-                            if (text.isBlank()) continue
-
-                            val assignment = assignSpeaker(embedder, clusterer, piece.samples)
-                            val startMs = piece.startSample * 1000L / VadSegmenter.SAMPLE_RATE
-                            val endMs = (piece.startSample + piece.samples.size) * 1000L /
-                                VadSegmenter.SAMPLE_RATE
-                            val segment = Segment(
-                                speaker = assignment.speaker,
-                                startMs = startMs,
-                                endMs = endMs,
-                                text = text,
-                            )
+                            val segment = processor.segment(piece) ?: continue
                             produced += segment
                             send(StreamingEvent.Utterance(segment))
                         }
@@ -219,32 +255,19 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
                 withContext(NonCancellable) { runCatching { worker.join() } }
                 runCatching { vad.reset() }
             }
+        } finally {
+            // release(), пришедший во время стрима, выполняется здесь — между
+            // операциями, а не под работающим native-вызовом. endSession()
+            // отпускает mutex под тем же handoff-локом, поэтому запрос не
+            // может потеряться между проверкой и unlock().
+            releaseGate.endSession()
         }
     }.flowOn(Dispatchers.Default)
 
     override fun release() {
-        releaseLocked()
-    }
-
-    private fun assignSpeaker(
-        extractor: SpeakerEmbeddingExtractor,
-        clusterer: OnlineSpeakerClusterer,
-        samples: FloatArray,
-    ): OnlineSpeakerClusterer.Assignment {
-        if (samples.size < MIN_EMBEDDING_SAMPLES) {
-            return fallbackAssignment(clusterer)
-        }
-
-        return try {
-            val embedding = extractEmbedding(extractor, samples)
-            if (embedding == null) {
-                fallbackAssignment(clusterer)
-            } else {
-                clusterer.assign(embedding, samples.size)
-            }
-        } catch (_: Throwable) {
-            fallbackAssignment(clusterer)
-        }
+        // Если идёт стрим, запрос откладывается до его конца. Логика
+        // «запрос + tryLock + handoff» живёт в ReleaseGate.
+        releaseGate.release()
     }
 
     /**
@@ -266,17 +289,6 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
         minFraction = config.clusterPruneMinFraction,
     )
 
-    private fun fallbackAssignment(
-        clusterer: OnlineSpeakerClusterer,
-    ): OnlineSpeakerClusterer.Assignment {
-        val speaker = clusterer.lastSpeaker.coerceAtLeast(0)
-        return OnlineSpeakerClusterer.Assignment(
-            speaker = speaker,
-            similarity = 0f,
-            isNewSpeaker = false,
-        )
-    }
-
     private fun extractEmbedding(
         extractor: SpeakerEmbeddingExtractor,
         samples: FloatArray,
@@ -290,6 +302,10 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             } else {
                 extractor.compute(stream).takeIf { it.isNotEmpty() }
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
         } finally {
             stream.release()
         }
@@ -307,9 +323,6 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
 
     private companion object {
         const val ASR_QUEUE_CAPACITY = 8
-
-        const val MIN_EMBEDDING_MS = 500
-        const val MIN_EMBEDDING_SAMPLES = VadSegmenter.SAMPLE_RATE * MIN_EMBEDDING_MS / 1000
 
         const val MIN_NEW_SPEAKER_MS = 2_500
         const val MIN_NEW_SPEAKER_SAMPLES = VadSegmenter.SAMPLE_RATE * MIN_NEW_SPEAKER_MS / 1000

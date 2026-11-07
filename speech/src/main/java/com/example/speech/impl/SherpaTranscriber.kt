@@ -29,31 +29,62 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToLong
 
+/**
+ * Batch-расшифровка: диаризация pyannote + CAM++ и ASR GigaAM-v3 по сегментам.
+ *
+ * Жизненный цикл моделей:
+ * - [load] и [transcribe] сериализованы одним [Mutex];
+ * - [release] во время расшифровки не освобождает native-объекты, а
+ *   откладывает освобождение до её конца (см. [ReleaseGate]);
+ * - диаризаторы кешируются по числу кластеров: переключение «авто → 2 → 3»
+ *   больше не перезагружает embedding-модель каждый раз.
+ */
 class SherpaTranscriber(private val context: Context) : Transcriber {
 
     private val mutex = Mutex()
 
     @Volatile private var recognizer: OfflineRecognizer? = null
-    @Volatile private var diarization: OfflineSpeakerDiarization? = null
     @Volatile private var loadedConfig: SpeechConfig? = null
-    @Volatile private var loadedClusters: Int = Int.MIN_VALUE
 
     @Volatile private var segmentationPath: String? = null
     @Volatile private var embeddingPath: String? = null
 
     @Volatile private var diarizationProgressSink: ((Float) -> Unit)? = null
 
-    override suspend fun load(config: SpeechConfig) = withContext(Dispatchers.IO) {
-        require(config.numThreads >= 1) { "numThreads должен быть >= 1" }
+    /**
+     * Кеш диаризаторов по числу кластеров. Два экземпляра покрывают основной
+     * сценарий «авто + один фиксированный N»; каждый держит ~27 МБ модели.
+     */
+    private val diarizers = LruCache<Int, OfflineSpeakerDiarization>(
+        maxEntries = DIARIZER_CACHE_SIZE,
+        onEvict = { diarizer -> runCatching { diarizer.release() } },
+    )
 
-        mutex.withLock {
-            if (loadedConfig == config && recognizer != null && diarization != null) {
-                return@withLock
+    private val releaseGate = ReleaseGate(
+        releaseModels = { releaseLocked() },
+        tryAcquire = { mutex.tryLock() },
+        unlock = { mutex.unlock() },
+    )
+
+    override suspend fun load(config: SpeechConfig) = withContext(Dispatchers.IO) {
+        mutex.lock()
+        var loadSucceeded = false
+        try {
+            if (loadedConfig?.batchModelsMatch(config) == true &&
+                recognizer != null &&
+                diarizers.size > 0
+            ) {
+                // Модели те же: достаточно запомнить конфиг, чтобы новые
+                // runtime-параметры (pruning и т. п.) применялись без
+                // холодной перезагрузки весов. При успехе endLoad() отменит
+                // отложенный release() — новая загрузка важнее старого запроса.
+                loadedConfig = config
+                loadSucceeded = true
+                return@withContext
             }
 
             val appContext = context.applicationContext
@@ -70,47 +101,56 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
                 tokensPath = BundledModels.TOKENS,
             )
 
-            val newDiarization = try {
-                createDiarization(
-                    assetManager = assets,
-                    config = config,
-                    segmentationPath = BundledModels.SEGMENTATION,
-                    embeddingPath = embeddingAsset,
-                    numClusters = AUTO_CLUSTERS,
-                )
+            try {
+                diarizers.getOrCreate(AUTO_CLUSTERS) {
+                    createDiarization(
+                        assetManager = assets,
+                        config = config,
+                        segmentationPath = BundledModels.SEGMENTATION,
+                        embeddingPath = embeddingAsset,
+                        numClusters = AUTO_CLUSTERS,
+                    )
+                }
             } catch (t: Throwable) {
                 runCatching { newRecognizer.release() }
                 throw t
             }
 
             recognizer = newRecognizer
-            diarization = newDiarization
             loadedConfig = config
-            loadedClusters = AUTO_CLUSTERS
             segmentationPath = BundledModels.SEGMENTATION
             embeddingPath = embeddingAsset
+            loadSucceeded = true
+        } finally {
+            releaseGate.endLoad(cancelPending = loadSucceeded)
         }
     }
 
-    override fun transcribe(wav: File): Flow<TranscriptionEvent> = transcribe(wav, null)
-
-    override fun transcribe(wav: File, expectedSpeakers: Int?): Flow<TranscriptionEvent> = channelFlow {
-        if (expectedSpeakers != null && expectedSpeakers !in MIN_SPEAKERS..MAX_SPEAKERS) {
-            send(
-                TranscriptionEvent.Failed(
-                    IllegalArgumentException(
-                        "expectedSpeakers должен быть null (авто) или $MIN_SPEAKERS..$MAX_SPEAKERS, " +
-                            "получено $expectedSpeakers",
+    override fun transcribe(wav: File, expectedSpeakers: Int?): Flow<TranscriptionEvent> =
+        channelFlow {
+            if (expectedSpeakers != null && expectedSpeakers !in MIN_SPEAKERS..MAX_SPEAKERS) {
+                send(
+                    TranscriptionEvent.Failed(
+                        IllegalArgumentException(
+                            "expectedSpeakers должен быть null (авто) или " +
+                                "$MIN_SPEAKERS..$MAX_SPEAKERS, получено $expectedSpeakers",
+                        ),
                     ),
-                ),
-            )
-            return@channelFlow
-        }
+                )
+                return@channelFlow
+            }
 
-        mutex.withLock {
-            transcribeLocked(this, wav, expectedSpeakers)
-        }
-    }.flowOn(Dispatchers.IO)
+            mutex.lock()
+            try {
+                transcribeLocked(this, wav, expectedSpeakers)
+            } finally {
+                // release(), пришедший во время расшифровки, выполняется
+                // здесь — после последнего native-вызова, а не под ним.
+                // endSession() отпускает mutex под тем же handoff-локом,
+                // поэтому запрос не может потеряться между проверкой и unlock().
+                releaseGate.endSession()
+            }
+        }.flowOn(Dispatchers.IO)
 
     private suspend fun transcribeLocked(
         events: SendChannel<TranscriptionEvent>,
@@ -119,7 +159,7 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
     ) {
         val config = loadedConfig
         val recognizer = recognizer
-        if (config == null || recognizer == null || diarization == null) {
+        if (config == null || recognizer == null) {
             events.send(
                 TranscriptionEvent.Failed(
                     IllegalStateException(
@@ -219,35 +259,33 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
             events.send(TranscriptionEvent.Done(result))
         } catch (cancellation: CancellationException) {
             throw cancellation
-        } catch (t: Throwable) {
-            events.send(TranscriptionEvent.Failed(t))
+        } catch (e: Exception) {
+            events.send(TranscriptionEvent.Failed(e))
         }
     }
 
+    /**
+     * Возвращает диаризатор для [desiredClusters], переиспользуя кеш.
+     *
+     * Модель привязана к числу кластеров, поэтому держать один экземпляр
+     * недостаточно: чередование «2 → 3 → 2» каждый раз перезагружало 27 МБ.
+     */
     private fun prepareDiarization(
         config: SpeechConfig,
         desiredClusters: Int,
     ): OfflineSpeakerDiarization {
-        if (desiredClusters == loadedClusters) {
-            return checkNotNull(diarization) { "Диаризатор не инициализирован" }
-        }
-
         val segmentation = checkNotNull(segmentationPath) { "Модель сегментации не задана" }
         val embedding = checkNotNull(embeddingPath) { "Embedding-модель не задана" }
 
-        runCatching { diarization?.release() }
-        diarization = null
-
-        val recreated = createDiarization(
-            assetManager = context.applicationContext.assets,
-            config = config,
-            segmentationPath = segmentation,
-            embeddingPath = embedding,
-            numClusters = desiredClusters,
-        )
-        diarization = recreated
-        loadedClusters = desiredClusters
-        return recreated
+        return diarizers.getOrCreate(desiredClusters) {
+            createDiarization(
+                assetManager = context.applicationContext.assets,
+                config = config,
+                segmentationPath = segmentation,
+                embeddingPath = embedding,
+                numClusters = desiredClusters,
+            )
+        }
     }
 
     private suspend fun runDiarization(
@@ -318,16 +356,16 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
     }
 
     override fun release() {
-        releaseLocked()
+        // Если идёт расшифровка, запрос откладывается до её конца. Логика
+        // «запрос + tryLock + handoff» живёт в ReleaseGate.
+        releaseGate.release()
     }
 
     private fun releaseLocked() {
         runCatching { recognizer?.release() }
-        runCatching { diarization?.release() }
         recognizer = null
-        diarization = null
+        diarizers.clear()
         loadedConfig = null
-        loadedClusters = Int.MIN_VALUE
         segmentationPath = null
         embeddingPath = null
     }
@@ -342,5 +380,8 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
         const val MIN_DURATION_OFF = 0.5f
 
         const val MIN_SEGMENT_MS = 200L
+
+        /** Сколько вариантов диаризатора держать одновременно. */
+        const val DIARIZER_CACHE_SIZE = 2
     }
 }
