@@ -223,7 +223,10 @@ $instrumentOutput |
 
 if ($instrumentText -match "FAILURES!!!" -or
     $instrumentText -match "Tests run:.*Failures: [1-9]" -or
-    $instrumentText -match "INSTRUMENTATION_STATUS_CODE: -2") {
+    $instrumentText -match "INSTRUMENTATION_STATUS_CODE: -2" -or
+    # Нативный SIGSEGV убивает процесс: FAILURES не пишется, а am instrument
+    # всё равно завершается с кодом 0.
+    $instrumentText -match "INSTRUMENTATION_RESULT: shortMsg=") {
     throw "Instrumentation failed.`n$instrumentText"
 }
 
@@ -255,6 +258,13 @@ function Get-DeviceFile {
     $psi.RedirectStandardError = $true
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
+    # adb exec-out не передаёт код возврата удалённой команды: сначала проверяем,
+    # что файл есть, иначе текст «No such file» молча попал бы в локальный .json.
+    try {
+        Invoke-Adb @("shell", "run-as", $package, "test", "-f", $RemotePath) | Out-Null
+    } catch {
+        throw "Результат $RemotePath не найден на устройстве: бенчмарк не завершился."
+    }
     $arguments = @($adbArgs) + @("exec-out", "run-as", $package, "cat", $RemotePath)
     $psi.Arguments = ($arguments | ForEach-Object {
             if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }

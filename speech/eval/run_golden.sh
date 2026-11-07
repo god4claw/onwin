@@ -48,16 +48,25 @@ if [[ ${#WAVS[@]} -eq 0 ]]; then
 fi
 
 cd "$ROOT_DIR"
+FAILED=()
 for wav in "${WAVS[@]}"; do
     echo "=== $(basename "$wav")"
     BUILD_FLAG=()
     if [[ "$NO_BUILD" -eq 1 ]]; then
         BUILD_FLAG=(--no-build)
     fi
-    bash speech/scripts/benchmark.sh --wav "$wav" --out "$OUT_DIR" \
-        ${BUILD_FLAG[@]+"${BUILD_FLAG[@]}"} ${FORWARD[@]+"${FORWARD[@]}"} >/dev/null
+    # Один упавший файл (например, нативный crash) не должен обрывать серию.
+    if ! bash speech/scripts/benchmark.sh --wav "$wav" --out "$OUT_DIR" \
+        ${BUILD_FLAG[@]+"${BUILD_FLAG[@]}"} ${FORWARD[@]+"${FORWARD[@]}"} >/dev/null; then
+        FAILED+=("$(basename "$wav")")
+    fi
     NO_BUILD=1
 done
 
 echo
 python3 speech/eval/stream_report.py "$OUT_DIR" --refs "$GOLDEN_DIR"
+if [[ ${#FAILED[@]} -gt 0 ]]; then
+    echo
+    echo "FAILED: ${FAILED[*]} (see the instrumentation output above)" >&2
+    exit 1
+fi

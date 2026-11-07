@@ -273,7 +273,10 @@ printf '%s\n' "$INSTRUMENT_OUTPUT" |
 if [[ "$INSTRUMENT_STATUS" -ne 0 ]] ||
     grep -q 'FAILURES!!!' <<<"$INSTRUMENT_OUTPUT" ||
     grep -qE 'Tests run:.*Failures: [1-9]' <<<"$INSTRUMENT_OUTPUT" ||
-    grep -q 'INSTRUMENTATION_STATUS_CODE: -2' <<<"$INSTRUMENT_OUTPUT"; then
+    grep -q 'INSTRUMENTATION_STATUS_CODE: -2' <<<"$INSTRUMENT_OUTPUT" ||
+    # Нативный SIGSEGV убивает процесс: JUnit не успевает написать FAILURES,
+    # а am instrument всё равно завершается с кодом 0.
+    grep -q 'INSTRUMENTATION_RESULT: shortMsg=' <<<"$INSTRUMENT_OUTPUT"; then
     echo "Instrumentation failed." >&2
     printf '%s\n' "$INSTRUMENT_OUTPUT" >&2
     exit 1
@@ -294,6 +297,12 @@ LOCAL_TXT="$OUT_DIR/$BASE-$STAMP.txt"
 echo "Pulling results..."
 pull_via_run_as() {
     local remote="$1" local_path="$2"
+    # adb exec-out не передаёт код возврата удалённой команды: без этой проверки
+    # текст «No such file» молча попадал бы в локальный .json.
+    if ! "$ADB" "${ADB_ARGS[@]}" shell run-as "$PACKAGE" test -f "$remote"; then
+        echo "Result $remote is missing on device: the benchmark did not finish." >&2
+        exit 1
+    fi
     if ! "$ADB" "${ADB_ARGS[@]}" exec-out run-as "$PACKAGE" cat "$remote" >"$local_path"; then
         echo "Failed to read $remote from device." >&2
         exit 1

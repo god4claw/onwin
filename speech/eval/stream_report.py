@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+import sys
 from pathlib import Path
 
 from score_wer import WerCounts, read_reference, score as score_wer
@@ -67,7 +68,12 @@ def seconds(ms: float | None) -> str:
 
 
 def row_for(path: Path, refs: Path, mode: str) -> tuple[dict, WerCounts | None, dict] | None:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        if mode == "streaming":  # предупредить один раз, а не на каждый режим
+            print(f"skip {path}: not a benchmark JSON ({e})", file=sys.stderr)
+        return None
     section = data.get(mode)
     if not section or not section.get("runs"):
         return None
