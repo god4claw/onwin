@@ -34,13 +34,39 @@
 
 ## Модель
 
-Qwen2.5-0.5B-Instruct, ONNX GenAI, int4 (`cpu-int4-rtn-block-32-acc-level-4`) — **~0,9 ГБ**,
-в APK не входит и в git не хранится.
+Qwen2.5-0.5B-Instruct, ONNX GenAI, int4 (`cpu-int4-rtn-block-32-acc-level-4`) — **~0,9 ГБ**
+в распакованном виде (10 файлов, 877 989 556 байт), в APK не входит и в git не хранится.
+
+Готовый архив — в релизе [`llm-model-v1`](https://github.com/god4claw/onwin/releases/tag/llm-model-v1)
+(репозиторий приватный, скачивание под своей учётной записью): `llm-model-v1.zip`,
+509 493 843 байт (485,9 МиБ), SHA-256
+`eafc3c6fd909bdc684510011ba1d043aac7ca2f7ae33be1f9bd78d80f60630c5`.
+Корень архива — `qwen2.5-0.5b-instruct-int4/`, распаковывать в `llm/models`:
 
 ```powershell
-pwsh -File llm/scripts/fetch-model.ps1     # скачать и сверить SHA-256 (llm/models.sha256)
+# из корня репозитория
+Expand-Archive -Path llm-model-v1.zip -DestinationPath llm/models -Force
+(Get-FileHash llm-model-v1.zip -Algorithm SHA256).Hash
+# eafc3c6fd909bdc684510011ba1d043aac7ca2f7ae33be1f9bd78d80f60630c5
 .\gradlew.bat :llm:verifyLlmModel          # проверить комплект
 pwsh -File llm/scripts/push-model.ps1      # залить на устройство
+```
+
+```bash
+unzip -o llm-model-v1.zip -d llm/models
+sha256sum llm-model-v1.zip
+./gradlew :llm:verifyLlmModel
+```
+
+Альтернатива — Hugging Face:
+[xiaoyao9184/Qwen2.5-0.5B-Instruct-onnx-genai](https://huggingface.co/xiaoyao9184/Qwen2.5-0.5B-Instruct-onnx-genai/tree/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4),
+каталог `cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4`. `fetch-model.ps1` скачивает
+файлы оттуда, сверяет SHA-256 с `llm/models.sha256` и раскладывает в `llm/models`:
+
+```powershell
+pwsh -File llm/scripts/fetch-model.ps1
+.\gradlew.bat :llm:verifyLlmModel
+pwsh -File llm/scripts/push-model.ps1
 ```
 
 Приложение ищет модель в двух местах по порядку:
