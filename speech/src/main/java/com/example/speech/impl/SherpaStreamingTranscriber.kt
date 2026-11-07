@@ -107,6 +107,7 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             val appContext = context.applicationContext
             BundledModels.requirePresent(appContext)
             BundledModels.requireEmbedding(appContext, config.embeddingModel)
+            BundledModels.requireAsr(appContext, config.asrModel)
             val assets = appContext.assets
 
             releaseLocked()
@@ -114,8 +115,6 @@ class SherpaStreamingTranscriber(private val context: Context) : StreamingTransc
             val newRecognizer = SherpaModelFactory.createRecognizer(
                 assetManager = assets,
                 config = config,
-                asrModelPath = BundledModels.ASR,
-                tokensPath = BundledModels.TOKENS,
             )
 
             val newVad = try {

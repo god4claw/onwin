@@ -1,5 +1,6 @@
 package com.example.speech.impl
 
+import com.example.speech.api.AsrModel
 import com.example.speech.api.SpeechConfig
 import com.example.speech.api.VadConfig
 import org.junit.Assert.assertFalse
@@ -31,6 +32,15 @@ class ConfigKeysTest {
 
         assertTrue(base.streamingModelsMatch(SpeechConfig(numThreads = 4, onlineClusterThreshold = 0.3f)))
         assertTrue(base.streamingModelsMatch(SpeechConfig(numThreads = 4, clusterPruneMinMs = 1_000)))
+    }
+
+    @Test
+    fun `asr model change reloads batch and streaming`() {
+        val ctc = SpeechConfig(numThreads = 4, asrModel = AsrModel.E2E_CTC)
+        val rnnt = SpeechConfig(numThreads = 4, asrModel = AsrModel.E2E_RNNT)
+
+        assertFalse(ctc.batchModelsMatch(rnnt))
+        assertFalse(ctc.streamingModelsMatch(rnnt))
     }
 
     @Test

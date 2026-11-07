@@ -2,15 +2,20 @@ package com.example.speech.data
 
 import android.content.Context
 import android.content.res.AssetManager
+import com.example.speech.api.AsrModel
 import com.example.speech.api.EmbeddingModel
 import java.security.MessageDigest
 
 internal object BundledModels {
-    const val ASR = "models/gigaam_v3_e2e_ctc_int8.onnx"
+    const val ASR_RNNT_ENCODER = "models/gigaam_v3_e2e_rnnt_encoder_int8.onnx"
+    const val ASR_RNNT_DECODER = "models/gigaam_v3_e2e_rnnt_decoder.onnx"
+    const val ASR_RNNT_JOINER = "models/gigaam_v3_e2e_rnnt_joiner.onnx"
+    const val ASR_RNNT_TOKENS = "asr/gigaam_v3_e2e_rnnt_tokens.txt"
+    const val ASR_CTC = "models/gigaam_v3_e2e_ctc_int8.onnx"
+    const val ASR_CTC_TOKENS = "asr/gigaam_v3_e2e_ctc_tokens.txt"
     const val EMBEDDING_CAMPLUS = "models/speaker_embedding_camplus.onnx"
     const val EMBEDDING_ERES2NET = "models/speaker_embedding_eres2net.onnx"
     const val SEGMENTATION = "asr/segmentation.onnx"
-    const val TOKENS = "asr/gigaam_v3_e2e_ctc_tokens.txt"
     const val VAD = "vad/silero_vad.onnx"
 
     fun embeddingFor(model: EmbeddingModel): String =
@@ -27,6 +32,15 @@ internal object BundledModels {
         }
     }
 
+    /** Файлы выбранной модели ASR есть в APK (e2e CTC — необязательная). */
+    fun requireAsr(context: Context, model: AsrModel) {
+        val missing = ModelRegistry.asrExtraFor(model).filterNot { isPresent(context, it) }
+        check(missing.isEmpty()) {
+            "В APK нет файлов модели ASR $model: ${missing.joinToString { "${it.assetPath} (${it.sizeBytes} байт)" }}. " +
+                "Положите их в speech/src/main/assets/."
+        }
+    }
+
     fun isPresent(context: Context, model: ModelFile): Boolean =
         assetSize(context.assets, model.assetPath) == model.sizeBytes
 
@@ -34,7 +48,7 @@ internal object BundledModels {
         val missing = missing(context)
         check(missing.isEmpty()) {
             "В APK отсутствуют модели: ${missing.joinToString()}. " +
-                "Скачайте speech-models-v1.zip из GitHub Releases и распакуйте в " +
+                "Скачайте веса по INSTALL.md (раздел «2. Веса») в " +
                 "speech/src/main/assets/. Проверьте noCompress в app/build.gradle.kts."
         }
     }
@@ -88,11 +102,6 @@ internal object BundledModels {
             SEGMENTATION,
             1_540_506L,
             "d582f4b4c6b48205de7e0643c57df0df5615a3c176189be3fc461e9d18827b5d",
-        ),
-        Entry(
-            TOKENS,
-            2_262L,
-            "8cb49db32f35bb382af88d2a8ed501aca0ef31e85d0c995c3a210256d6d353a7",
         ),
         Entry(
             VAD,

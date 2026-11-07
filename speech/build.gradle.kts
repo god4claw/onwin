@@ -94,8 +94,8 @@ tasks.register("verifyBundledModels") {
 
         if (failures > 0) {
             throw GradleException(
-                "Не хватает $failures файлов моделей. Скачайте speech-models-v1.zip " +
-                    "из GitHub Releases и распакуйте в speech/src/main/assets/.",
+                "Не хватает $failures файлов моделей. Скачайте веса по INSTALL.md " +
+                    "(раздел «2. Веса») в speech/src/main/assets/.",
             )
         }
         logger.lifecycle("Bundled models: OK ($checked файлов)")

@@ -48,8 +48,23 @@ enum class EmbeddingModel(
     ERES2NET("speaker_embedding_eres2net.onnx")
 }
 
+/**
+ * Модель распознавания GigaAM-v3 e2e: пунктуация, регистр, числа цифрами.
+ *
+ * - [E2E_RNNT] — RNN-T-декодер (экспорт k2-fsa 2025-12-16), по умолчанию. На
+ *   эмуляторе в режиме файла против [E2E_CTC]: WER живых диалогов 3,81 → 3,70 %,
+ *   синтетики 16,2 → 15,1 %, val2 19,5 → 17,8 %; числа верно по значению 85 → 93 %;
+ *   диаризация без изменений; RTF примерно на 17 % выше (docs/bench-asr-rnnt.md).
+ * - [E2E_CTC] — прежняя CTC-модель; её файлы в APK необязательны.
+ */
+enum class AsrModel {
+    E2E_RNNT,
+    E2E_CTC
+}
+
 data class SpeechConfig(
     val numThreads: Int = 4,
+    val asrModel: AsrModel = AsrModel.E2E_RNNT,
     val embeddingModel: EmbeddingModel = EmbeddingModel.ERES2NET,
     val autoClusterThreshold: Float = 0.80f,
     val onlineClusterThreshold: Float = 0.45f,

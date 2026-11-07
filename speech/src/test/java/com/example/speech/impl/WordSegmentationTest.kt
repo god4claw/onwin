@@ -8,6 +8,22 @@ import org.junit.Test
 class WordSegmentationTest {
 
     @Test
+    fun `rnnt subword tokens assemble into the same words as ctc`() {
+        // Реальный выход GigaAM-v3 e2e RNN-T: подслова SentencePiece, дефис и запятая — отдельными токенами.
+        val words = assembleWords(
+            tokens = arrayOf(" О", "ни", " сказал", "и", " что", "-", "то", " о", " то", "м", ","),
+            timestamps = floatArrayOf(0.08f, 0.20f, 0.44f, 0.72f, 0.88f, 1.08f, 1.08f, 1.24f, 1.40f, 1.52f, 1.64f),
+            sampleRate = SR,
+            limitSamples = 2 * SR,
+        )
+
+        assertEquals(listOf("Они", "сказали", "что-то", "о", "том,"), words.map { it.text })
+        words.zipWithNext().forEach { (a, b) -> assertTrue("${a.text} заходит на ${b.text}", a.endSample <= b.startSample) }
+        // Конец «том,» — по последнему буквенному токену «м» (1,52 с) плюс 0,25 с, а не по запятой.
+        assertEquals((1.77 * SR).toInt().toFloat(), words.last().endSample.toFloat(), SR * 0.01f)
+    }
+
+    @Test
     fun `tokens with a leading space start words, punctuation sticks to the word`() {
         // Как на устройстве: «Сколько € я могу…» — пробел в токене = ▁ в словаре.
         val words = assembleWords(

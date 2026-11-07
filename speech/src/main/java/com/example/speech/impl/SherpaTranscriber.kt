@@ -90,6 +90,7 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
             val appContext = context.applicationContext
             BundledModels.requirePresent(appContext)
             BundledModels.requireEmbedding(appContext, config.embeddingModel)
+            BundledModels.requireAsr(appContext, config.asrModel)
             val assets = appContext.assets
             val embeddingAsset = BundledModels.embeddingFor(config.embeddingModel)
 
@@ -98,8 +99,6 @@ class SherpaTranscriber(private val context: Context) : Transcriber {
             val newRecognizer = SherpaModelFactory.createRecognizer(
                 assetManager = assets,
                 config = config,
-                asrModelPath = BundledModels.ASR,
-                tokensPath = BundledModels.TOKENS,
             )
 
             try {
