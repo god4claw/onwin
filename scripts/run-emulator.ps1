@@ -5,15 +5,14 @@
 
 .DESCRIPTION
     На этой машине QEMU периодически падает под нагрузкой ONNX (access violation),
-    поэтому запуск вынесен в один скрипт: эмулятор, установка, модель, старт.
+    поэтому запуск вынесен в один скрипт: эмулятор, установка и старт.
 
     Скрипт:
     1. поднимает AVD (по умолчанию headless; -Window — с окном, но на этой
        машине окно ломается с UpdateLayeredWindowIndirect);
-    2. собирает APK, если его нет (x86_64, nonMinifiedRelease);
-    3. ставит APK, если пакет не установлен;
-    4. заливает LLM-модель, если её нет в каталоге приложения;
-    5. открывает приложение.
+    2. собирает x86_64 APK с LLM, если подходящего APK ещё нет;
+    3. устанавливает APK, если пакет не установлен или APK пересобран;
+    4. открывает приложение.
 
 .EXAMPLE
     pwsh -ExecutionPolicy Bypass -File scripts/run-emulator.ps1
@@ -30,14 +29,13 @@ param(
     [string]$Avd = "Pixel_6_API34",
     [switch]$Window,
     [switch]$Rebuild,
-    [string]$Package = "com.example.onwin.profile",
-    [string]$Model = "llm\models\qwen2.5-0.5b-instruct-int4"
+    [string]$Package = "io.github.god4claw.onwin.profile"
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 $apk = Join-Path $root "app\build\outputs\apk\nonMinifiedRelease\app-nonMinifiedRelease.apk"
-$modelSource = Join-Path $root $Model
+$apkMetadata = Join-Path (Split-Path $apk -Parent) "output-metadata.json"
 $log = Join-Path $root "run-artifacts\emulator.log"
 
 function Resolve-Adb {
@@ -81,30 +79,31 @@ if (-not $devices) {
     Write-Host "Эмулятор загружен."
 }
 
-if ($Rebuild -or -not (Test-Path $apk)) {
+$canReuseApk = $false
+if (-not $Rebuild -and (Test-Path $apk) -and (Test-Path $apkMetadata)) {
+    $metadata = Get-Content -LiteralPath $apkMetadata -Raw | ConvertFrom-Json
+    if ($metadata.applicationId -ceq $Package) {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $apkArchive = [IO.Compression.ZipFile]::OpenRead($apk)
+        try {
+            $canReuseApk = $null -ne $apkArchive.GetEntry("assets/llm/llm-model-v1.zip")
+        } finally {
+            $apkArchive.Dispose()
+        }
+    }
+}
+$buildApk = -not $canReuseApk
+if ($buildApk) {
     Write-Host "Собираю x86_64 APK..."
     & (Join-Path $root "gradlew.bat") :app:assembleNonMinifiedRelease "-PonwinProfileX86=true"
     if ($LASTEXITCODE -ne 0) { throw "Сборка не удалась" }
 }
 
 $installed = (& $adb shell pm list packages) -match [regex]::Escape($Package)
-if (-not $installed) {
+if ($buildApk -or -not $installed) {
     Write-Host "Ставлю $Package..."
     & $adb install -r $apk
     if ($LASTEXITCODE -ne 0) { throw "Установка не удалась (проверьте место: adb shell df -h /data)" }
-}
-
-$modelDir = "/sdcard/Android/data/$Package/files/llm"
-$hasModel = ((& $adb shell ls $modelDir 2>$null) -join " ") -match "genai_config.json"
-if (-not $hasModel) {
-    if (-not (Test-Path (Join-Path $modelSource "genai_config.json"))) {
-        Write-Warning "Модели нет на хосте: выполните llm/scripts/fetch-model.ps1. Приложение запустится без LLM."
-    } else {
-        Write-Host "Заливаю LLM-модель (~0,9 ГБ)..."
-        & $adb shell mkdir -p $modelDir
-        & $adb push "$modelSource/." "$modelDir/"
-        & $adb shell chmod -R 777 $modelDir
-    }
 }
 
 & $adb shell am start -n "$Package/com.example.onwin.MainActivity" | Out-Null

@@ -88,5 +88,5 @@ bash speech/eval/run_golden.sh bench-results/agc/off --no-build --mode streaming
 `gain=…dB`, в итоге сессии `agcMax=…dB`.
 
 Сырые JSON прогонов в git не хранятся (локально — `bench-results/`): повторить
-можно бенчмарком `speech/scripts/benchmark.sh`. Базовая линия без АРУ —
+можно бенчмарком `../../speech/scripts/benchmark.sh`. Базовая линия без АРУ —
 серии A и E в [`bench-golden-baseline.md`](bench-golden-baseline.md).

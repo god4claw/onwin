@@ -117,10 +117,10 @@ Silero VAD в sherpa-onnx не соблюдает `maxSpeechDuration`: в диа
 - `VadChunkSplitter.splitLongVadSegment` — разрез в самом тихом окне.
 - `StreamingChunkProcessor.process` — ASR всего чанка, слова по кускам,
   перепроверка кусков на разреженном выходе (`COLLAPSE_*`).
-- `speech/eval/score_wer.py` — латинские двойники в русских словах.
+- `../../speech/eval/score_wer.py` — латинские двойники в русских словах.
 
 Скрипты разбора (хост, sherpa-onnx Python) — не в репозитории: идеальная
 нарезка, копия VAD-пайплайна с поиском смены говорящего и подбор правила.
 
 Сырые JSON прогонов в git не хранятся (локально — `bench-results/`): повторить
-можно бенчмарком `speech/scripts/benchmark.sh`.
+можно бенчмарком `../../speech/scripts/benchmark.sh`.

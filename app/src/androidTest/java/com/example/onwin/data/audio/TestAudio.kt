@@ -134,7 +134,7 @@ internal const val METRICS_FILE = "audio-test-metrics.txt"
 /**
  * Пишет измерение в logcat и дописывает его в `files/[METRICS_FILE]` приложения.
  * Некоторые прошивки (Huawei EMUI) не пускают Log.i приложений в logcat; файл тогда читается так:
- * `adb shell run-as com.example.onwin cat files/audio-test-metrics.txt`.
+ * `adb shell run-as io.github.god4claw.onwin cat files/audio-test-metrics.txt`.
  */
 internal fun reportMetric(tag: String, message: String) {
     Log.i(tag, message)

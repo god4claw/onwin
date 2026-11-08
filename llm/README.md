@@ -1,7 +1,7 @@
 # :llm — локальная LLM для правки расшифровки и протокола
 
 Модуль подставляет в `:speech` реализацию `TextGenerator` поверх ONNX Runtime GenAI.
-Промпт, маски чисел, гард и разбор ответа живут в `:speech` ([`docs/llm-correction.md`](../docs/llm-correction.md));
+Промпт, маски чисел, гард и разбор ответа живут в `:speech` ([`../docs/benches/llm-correction.md`](../docs/benches/llm-correction.md));
 здесь — только рантайм, поиск модели и сборка корректора.
 
 ## Что внутри
@@ -36,13 +36,18 @@
 ## Модель
 
 Qwen2.5-0.5B-Instruct, ONNX GenAI, int4 (`cpu-int4-rtn-block-32-acc-level-4`) — **~0,9 ГБ**
-в распакованном виде (10 файлов, 877 989 556 байт), в APK не входит и в git не хранится.
+в распакованном виде (10 файлов, 877 989 556 байт).
 
 Готовый архив — в релизе [`llm-model-v1`](https://github.com/god4claw/onwin/releases/tag/llm-model-v1)
 (репозиторий приватный, скачивание под своей учётной записью): `llm-model-v1.zip`,
 509 493 843 байт (485,9 МиБ), SHA-256
 `eafc3c6fd909bdc684510011ba1d043aac7ca2f7ae33be1f9bd78d80f60630c5`.
-Корень архива — `qwen2.5-0.5b-instruct-int4/`, распаковывать в `llm/models`:
+Для сборки приложения положите ZIP в корень репозитория. Gradle проверяет хеш и
+включает ZIP в APK. При первом запросе модель распаковывается в `noBackupFilesDir/llm/v1`.
+Загрузка весов с устройства и вывод модели работают офлайн.
+
+Для отдельных инструментальных тестов модуля `:llm` можно распаковать архив в
+`llm/models` и залить комплект в тестовый пакет:
 
 ```powershell
 # из корня репозитория
@@ -50,7 +55,7 @@ Expand-Archive -Path llm-model-v1.zip -DestinationPath llm/models -Force
 (Get-FileHash llm-model-v1.zip -Algorithm SHA256).Hash
 # eafc3c6fd909bdc684510011ba1d043aac7ca2f7ae33be1f9bd78d80f60630c5
 .\gradlew.bat :llm:verifyLlmModel          # проверить комплект
-pwsh -File llm/scripts/push-model.ps1      # залить на устройство
+pwsh -File llm/scripts/push-model.ps1 -Package com.example.llm.test
 ```
 
 ```bash
@@ -67,13 +72,13 @@ sha256sum llm-model-v1.zip
 ```powershell
 pwsh -File llm/scripts/fetch-model.ps1
 .\gradlew.bat :llm:verifyLlmModel
-pwsh -File llm/scripts/push-model.ps1
+pwsh -File llm/scripts/push-model.ps1 -Package com.example.llm.test
 ```
 
-Приложение ищет модель в двух местах по порядку:
+Сборки и тесты без встроенного архива могут использовать распакованную модель:
 
 1. `filesDir/llm` — внутренний каталог приложения;
-2. `getExternalFilesDir(null)/llm` — `/sdcard/Android/data/com.example.onwin/files/llm`, туда пишет `push-model.ps1`.
+2. `getExternalFilesDir(null)/llm` — каталог пакета, указанный в `push-model.ps1`.
 
 ## Рантайм и размер
 
@@ -124,4 +129,4 @@ Pixel_8_API36 (x86_64, Android 16), 2026-11-07:
   видит исходный текст ASR.
 
 Качество правки (WER до/после) не измерено: нужен эталонный набор реплик,
-см. [`docs/llm-correction.md`](../docs/llm-correction.md), раздел «Как проверять».
+см. [`../docs/benches/llm-correction.md`](../docs/benches/llm-correction.md), раздел «Как проверять».

@@ -6,7 +6,7 @@
              как у чужих приложений. Экспортирован, иначе приложение под тестом его не увидит. -->
         <provider
             android:name="com.example.onwin.data.audio.TestAudioProvider"
-            android:authorities="com.example.onwin.test.audio"
+            android:authorities="io.github.god4claw.onwin.test.audio"
             android:exported="true" />
     </application>
 

@@ -10,7 +10,7 @@ import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import java.util.regex.Pattern
 
-internal const val PROFILE_PACKAGE = "com.example.onwin.profile"
+internal const val PROFILE_PACKAGE = "io.github.god4claw.onwin.profile"
 private const val MAIN_ACTIVITY = "com.example.onwin.MainActivity"
 internal const val UI_TIMEOUT_MS = 10_000L
 internal const val WELCOME_BUTTON = "Начать"

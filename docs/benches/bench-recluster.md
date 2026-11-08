@@ -4,7 +4,7 @@
 Стенд — [`bench-golden-baseline.md`](bench-golden-baseline.md), АРУ включена в
 обоих сравниваемых вариантах. Метрика атрибуции — **spkErr** (доля времени,
 отданного не тому спикеру, там, где и в эталоне, и в гипотезе один спикер), см.
-[`speech/eval/README.md`](../speech/eval/README.md).
+[`../../speech/eval/README.md`](../../speech/eval/README.md).
 
 ## Проблема
 
@@ -38,7 +38,7 @@ embedding-ами кластеризуются заново.
 
 1. Бенчмарк научился писать embedding каждой реплики (`--dump-embeddings`).
 2. Алгоритм и сетка параметров — на хосте
-   ([`speech/eval/recluster_sim.py`](../speech/eval/recluster_sim.py)), секунды на
+   ([`../../speech/eval/recluster_sim.py`](../../speech/eval/recluster_sim.py)), секунды на
    итерацию вместо пересборки APK.
 3. Параметры подобраны на золотом наборе (8 синтетических разговоров + 3 живые
    записи) и **проверены без подстройки** на отложенной выборке — 18 других
@@ -100,4 +100,4 @@ python speech/eval/recluster_sim.py bench-results/emb-holdout --refs speech/eval
 ```
 
 Сырые JSON прогонов в git не хранятся (локально — `bench-results/`): повторить
-можно бенчмарком `speech/scripts/benchmark.sh`.
+можно бенчмарком `../../speech/scripts/benchmark.sh`.

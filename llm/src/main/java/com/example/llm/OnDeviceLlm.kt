@@ -52,7 +52,8 @@ class OnDeviceLlm private constructor(
             candidates(context).firstOrNull(LlmModelDirectory::isComplete)
 
         /** Есть ли на устройстве модель, с которой можно работать. */
-        fun isAvailable(context: Context): Boolean = modelDirectory(context) != null
+        fun isAvailable(context: Context): Boolean =
+            BundledLlmModel.isAvailable(context) || modelDirectory(context) != null
 
         /**
          * Корректор и анализатор на одной модели или `null`, если модели нет.
@@ -60,8 +61,11 @@ class OnDeviceLlm private constructor(
          * @param lexicon пары «как услышали» → «как правильно» для слоя без модели.
          */
         fun create(context: Context, lexicon: Map<String, String> = emptyMap()): OnDeviceLlm? {
-            val dir = modelDirectory(context) ?: return null
-            val generator = OnnxGenAiGenerator(dir)
+            val generator = if (BundledLlmModel.isAvailable(context)) {
+                OnnxGenAiGenerator(BundledLlmModel.from(context)::prepare)
+            } else {
+                OnnxGenAiGenerator(modelDirectory(context) ?: return null)
+            }
             val layers = buildList {
                 if (lexicon.isNotEmpty()) add(LexiconCorrector(lexicon))
                 add(LlmCorrector(generator, maxOutputTokens = CORRECTION_MAX_TOKENS, budgetMs = CORRECTION_BUDGET_MS))

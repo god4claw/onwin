@@ -1,7 +1,7 @@
 # Псевдостриминг: базовые замеры на золотом наборе
 
 Дата: 2026-11-06. Ветка `feat/speech-bench-realtime` — стенд из
-[`speech/BENCHMARK.md`](../speech/BENCHMARK.md) (`--pace`, задержки, WER, логи).
+[`../../speech/BENCHMARK.md`](../../speech/BENCHMARK.md) (`--pace`, задержки, WER, логи).
 Код псевдостриминга не менялся: это замер того, что есть в `main`.
 
 ## Стенд
@@ -20,11 +20,11 @@
 
 8 синтетических разговоров из `ivkond/synthetic-speech-diarization-ru` (MIT),
 всего 366 с речи, плюс `golden_long` — они же подряд, 377 с. Состав и причины
-выбора — в [`speech/eval/make_golden.py`](../speech/eval/make_golden.py):
+выбора — в [`../../speech/eval/make_golden.py`](../../speech/eval/make_golden.py):
 диалог, интервью, одновременная речь, белый шум 13 дБ, кафе 10 дБ, группы на 3
 и 4 голоса, монолог.
 
-Как читать метрики — [`speech/eval/README.md`](../speech/eval/README.md#golden-set-streaming).
+Как читать метрики — [`../../speech/eval/README.md`](../../speech/eval/README.md#golden-set-streaming).
 Коротко: **DER на синтетике завышен** (эталонные реплики идут встык и покрывают
 паузы), поэтому атрибуцию спикеров смотрим по **spkErr**; в WER часть ошибок —
 «десять» в эталоне против «10» у GigaAM.

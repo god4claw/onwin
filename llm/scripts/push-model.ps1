@@ -17,7 +17,7 @@
     pwsh -File llm/scripts/push-model.ps1 -Serial emulator-5554 -Package com.example.llm
 #>
 param(
-    [string]$Package = "com.example.onwin",
+    [string]$Package = "io.github.god4claw.onwin",
     [string]$Source = (Join-Path $PSScriptRoot "..\models\qwen2.5-0.5b-instruct-int4"),
     [string]$Serial = ""
 )

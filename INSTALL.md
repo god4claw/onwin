@@ -150,68 +150,22 @@ rm -r parakeet.tar.bz2 "$p"
 лежат подкаталоги `models/`, `asr/`, `vad/`. Не распаковывайте во вложенную
 папку: `verifyBundledModels` не найдёт файлы.
 
-## 2б. LLM-модель (необязательно)
+## 2б. LLM-модель
 
-Правка расшифровки локальной LLM включается только если на устройстве есть модель.
-Без неё приложение работает как раньше: этап `CORRECTING` просто не запускается.
+Qwen2.5-0.5B-Instruct (ONNX GenAI, int4) входит в debug и release APK.
+Положите `llm-model-v1.zip` из [релиза модели](https://github.com/god4claw/onwin/releases/tag/llm-model-v1)
+в корень репозитория. Для скачивания нужен доступ к приватному репозиторию.
+Gradle проверяет SHA-256 и включает архив в APK. Архив хранится отдельно от Git.
 
-Модель — Qwen2.5-0.5B-Instruct (ONNX GenAI, int4), 10 файлов, 877 989 556 байт
-(~837 МиБ) в распакованном виде. В APK и в git не входит:
-[`llm/README.md`](llm/README.md).
+Архив добавляет 486 МиБ к APK. При первом использовании LLM приложению нужно
+ещё около 837 МиБ свободного места для распаковки. Подготовка модели и работа LLM
+доступны без сети. [Подробности](llm/README.md)
 
-Скачать готовый архив из релиза (репозиторий приватный — только под своей учётной
-записью; `curl` без токена ассет не скачает):
-
-1. **Releases → `llm-model-v1` → Assets → `llm-model-v1.zip`**:
-   [`https://github.com/god4claw/onwin/releases/tag/llm-model-v1`](https://github.com/god4claw/onwin/releases/tag/llm-model-v1).
-2. Положите `llm-model-v1.zip` в корень репозитория и распакуйте в `llm/models` —
-   внутри архива уже лежит каталог `qwen2.5-0.5b-instruct-int4/`.
-
-PowerShell:
+Проверка встроенной модели на подключённом устройстве проверяет коррекцию русской
+реплики и генерацию протокола с моделью из APK.
 
 ```powershell
-Expand-Archive -Path "llm-model-v1.zip" -DestinationPath "llm\models" -Force
-(Get-FileHash llm-model-v1.zip -Algorithm SHA256).Hash
-# eafc3c6fd909bdc684510011ba1d043aac7ca2f7ae33be1f9bd78d80f60630c5
-.\gradlew.bat :llm:verifyLlmModel
-pwsh -File llm/scripts/push-model.ps1
-```
-
-bash:
-
-```bash
-unzip -o llm-model-v1.zip -d llm/models
-sha256sum llm-model-v1.zip
-# eafc3c6fd909bdc684510011ba1d043aac7ca2f7ae33be1f9bd78d80f60630c5  llm-model-v1.zip
-./gradlew :llm:verifyLlmModel
-```
-
-Архив `llm-model-v1.zip` — 509 493 843 байт (485,9 МиБ), SHA-256
-`eafc3c6fd909bdc684510011ba1d043aac7ca2f7ae33be1f9bd78d80f60630c5`.
-После распаковки в `llm/models/qwen2.5-0.5b-instruct-int4/` должно быть 10 файлов
-общим размером 877 989 556 байт.
-
-Альтернатива — скачать с Hugging Face скриптом; он сам сверяет SHA-256 каждого файла
-с `llm/models.sha256`:
-
-```powershell
-pwsh -File llm/scripts/fetch-model.ps1
-.\gradlew.bat :llm:verifyLlmModel
-pwsh -File llm/scripts/push-model.ps1
-```
-
-Источник: [xiaoyao9184/Qwen2.5-0.5B-Instruct-onnx-genai](https://huggingface.co/xiaoyao9184/Qwen2.5-0.5B-Instruct-onnx-genai/tree/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4),
-каталог `cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4`.
-
-`push-model.ps1` копирует модель в `/sdcard/Android/data/com.example.onwin/files/llm` —
-приложение читает её оттуда без разрешений на внешнее хранилище. Каталог можно задать:
-`-Package com.example.onwin -Serial emulator-5554`.
-
-Проверка на устройстве (нужна модель, залитая в тестовый пакет):
-
-```powershell
-pwsh -File llm/scripts/push-model.ps1 -Package com.example.llm.test
-.\gradlew.bat :llm:connectedDebugAndroidTest
+.\gradlew.bat :app:connectedDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=com.example.onwin.data.BundledLlmTest"
 ```
 
 ## 3. Сборка и установка
@@ -238,7 +192,7 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 и распространения остаются arm64. Если подключено несколько устройств,
 задайте `ANDROID_SERIAL` перед запуском.
 
-Генератор использует отдельный пакет `com.example.onwin.profile`.
+Генератор использует отдельный пакет `io.github.god4claw.onwin.profile`.
 На первом запуске ему нужен экран приветствия. Для сценария импорта на
 устройстве нужен системный выбор файлов с папкой «Загрузки» или Downloads.
 Оставьте устройство разблокированным. Генератор сам создаёт короткий тестовый
@@ -252,24 +206,29 @@ WAV. Сохраните оба текстовых профиля из `app/src/r
 
 ### Сборка и подпись release APK
 
-`release` оптимизируется R8 и собирается без подписи. Перед сборкой проверьте веса
-командой `:speech:verifyBundledModels`. Для распространения подпишите APK ключом релиза,
+`release` оптимизируется R8 и локально подписывается debug-ключом. Gradle проверяет
+веса речи и архив LLM при сборке. Для распространения подпишите APK ключом релиза,
 который хранится вне репозитория. Пароли вводите по запросу `apksigner`.
 
+По умолчанию `release` собирается для ARM64. Для x86_64 передайте
+`-PonwinReleaseAbi=x86_64` команде Gradle ниже. Для явного выбора ARM64 используйте
+`-PonwinReleaseAbi=arm64-v8a`. Если нужны обе версии, после каждой сборки сохраните
+APK и `mapping.txt` отдельно, поскольку Gradle использует одни и те же пути вывода.
+
 ```powershell
-.\gradlew.bat :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest :app:analyzeReleaseR8Config
+.\gradlew.bat :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest
 
 # apksigner и zipalign из Android SDK Build Tools должны быть доступны в PATH.
-$apk = 'app\build\outputs\apk\release\app-release-unsigned.apk'
-$signedApk = 'app\build\outputs\apk\release\private-onwin-arm64.apk'
+$apk = 'app\build\outputs\apk\release\app-release.apk'
+$signedApk = 'app\build\outputs\apk\release\private-onwin-arm64.apk' # Для x86_64 укажите другое имя.
 zipalign -c -P 16 4 $apk
 apksigner sign --ks $env:ONWIN_RELEASE_KEYSTORE --ks-key-alias $env:ONWIN_RELEASE_KEY_ALIAS --out $signedApk $apk
 apksigner verify --verbose --print-certs $signedApk
 adb install -r $signedApk
 ```
 
-Перед распространением проверьте `assets/dexopt/baseline.prof` и
-`lib/arm64-v8a/` в APK. Если предыдущий APK уже распространялся, сверьте
+Перед распространением проверьте `assets/dexopt/baseline.prof` и каталог выбранного ABI
+(`lib/arm64-v8a/` или `lib/x86_64/`) в APK. Если предыдущий APK уже распространялся, сверьте
 SHA-256 сертификата подписи и проверьте установку поверх предыдущей версии
 на тестовом телефоне без удаления её данных. Проверьте импорт, микрофон,
 завершение расшифровки, воспроизведение и сохранение JSON. Вместе с APK

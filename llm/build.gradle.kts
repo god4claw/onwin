@@ -56,8 +56,8 @@ dependencies {
 
 /**
  * Проверяет, что в `llm/models/<model>/` лежит комплект ONNX GenAI и хеши файлов
- * совпадают с `models.sha256`. Модель не входит в git и не пакуется в APK: её
- * скачивает `llm/scripts/fetch-model.ps1`.
+ * совпадают с `models.sha256`. Этот комплект используется в отдельных тестах :llm.
+ * APK приложения включает архив, который проверяет `:app:prepareLlmAssets`.
  */
 tasks.register("verifyLlmModel") {
     group = "verification"

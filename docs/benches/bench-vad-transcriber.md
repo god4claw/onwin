@@ -76,4 +76,4 @@ GOLDEN_DIR=speech/eval/holdout bash speech/eval/run_golden.sh bench-results/vad-
 ```
 
 Сырые JSON прогонов в git не хранятся (локально — `bench-results/`): повторить
-можно бенчмарком `speech/scripts/benchmark.sh`.
+можно бенчмарком `../../speech/scripts/benchmark.sh`.

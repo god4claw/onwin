@@ -72,7 +72,7 @@ RNN-T: очищенный сигнал в ASR хуже на 0,5–0,9 п.п.; т
 ## Повтор
 
 Сырые JSON прогонов в git не хранятся (локально — `bench-results/`): повторить
-можно бенчмарком `speech/scripts/benchmark.sh`:
+можно бенчмарком `../../speech/scripts/benchmark.sh`:
 
 ```bash
 for f in speech/eval/dialogs/*.wav; do

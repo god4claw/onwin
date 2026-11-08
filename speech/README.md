@@ -2,7 +2,7 @@
 
 ML-модуль приложения `private-onwin`: русская речь → текст с таймкодами и метками говорящих. Считается на устройстве, сеть в рантайме не нужна. Веса лежат в APK и читаются через `AssetManager`.
 
-- **Файл (рекомендуется): `SherpaVadTranscriber`** — готовый WAV через пайплайн streaming без пауз: АРУ → VAD → ASR по репликам → спикеры по всей записи. На наших замерах точнее и вдвое быстрее batch и не падает на монологе — [`docs/bench-vad-transcriber.md`](../docs/bench-vad-transcriber.md).
+- **Файл (рекомендуется): `SherpaVadTranscriber`** — готовый WAV через пайплайн streaming без пауз: АРУ → VAD → ASR по репликам → спикеры по всей записи. На наших замерах точнее и вдвое быстрее batch и не падает на монологе — [`../docs/benches/bench-vad-transcriber.md`](../docs/benches/bench-vad-transcriber.md).
 - **Batch:** готовый WAV → диаризация pyannote → сегменты с текстом (`SherpaTranscriber`).
 - **Streaming (псевдостриминг):** поток PCM 16 кГц → VAD → распознавание каждой реплики → онлайн-кластеризация говорящих → в конце пересчёт спикеров по всем репликам.
 - Стек: GigaAM-v3 e2e RNN-T (ASR; e2e CTC — запасной вариант), Parakeet TDT 110M (английские фразы, без выбора языка), speaker embedding ERes2Net (диаризация; CAM++ — запасной вариант), pyannote segmentation (только batch), Silero VAD, sherpa-onnx 1.13.0.
@@ -125,9 +125,9 @@ sealed interface StreamingEvent {
 | Поле | По умолчанию | Смысл |
 |---|---|---|
 | `numThreads: Int` | `4` | Потоки ASR и диаризации (VAD — всегда 1), `>= 1` |
-| `detectEnglish` | `true` | Английская речь без выбора языка: кусок, который GigaAM записала больше чем на 90 % латиницей, или ряд из ≥ 4 латинских слов внутри куска перераспознаётся Parakeet. Модель грузится при первой английской фразе; нет её файлов — только русский. На хосте: английский 69,9 → 5,6 % WER, смешанные RU+EN 17,5 → 7,0 %, русские без изменений — [`docs/bench-english.md`](../docs/bench-english.md) |
-| `asrModel` | `E2E_RNNT` | `E2E_RNNT` (GigaAM-v3 e2e RNN-T, по умолчанию) или `E2E_CTC` (прежняя модель; её файлы в APK необязательны). RNN-T точнее: WER синтетики 16,2 → 15,1 %, числа верно по значению 85 → 93 % — [`docs/bench-asr-rnnt.md`](../docs/bench-asr-rnnt.md) |
-| `embeddingModel` | `ERES2NET` | `ERES2NET` (`speaker_embedding_eres2net.onnx`) или `CAMPLUS` (`speaker_embedding_camplus.onnx`). CAM++ обучена на китайской речи и путает два женских голоса — [`docs/bench-eres2net.md`](../docs/bench-eres2net.md) |
+| `detectEnglish` | `true` | Английская речь без выбора языка: кусок, который GigaAM записала больше чем на 90 % латиницей, или ряд из ≥ 4 латинских слов внутри куска перераспознаётся Parakeet. Модель грузится при первой английской фразе; нет её файлов — только русский. На хосте: английский 69,9 → 5,6 % WER, смешанные RU+EN 17,5 → 7,0 %, русские без изменений — [`../docs/benches/bench-english.md`](../docs/benches/bench-english.md) |
+| `asrModel` | `E2E_RNNT` | `E2E_RNNT` (GigaAM-v3 e2e RNN-T, по умолчанию) или `E2E_CTC` (прежняя модель; её файлы в APK необязательны). RNN-T точнее: WER синтетики 16,2 → 15,1 %, числа верно по значению 85 → 93 % — [`../docs/benches/bench-asr-rnnt.md`](../docs/benches/bench-asr-rnnt.md) |
+| `embeddingModel` | `ERES2NET` | `ERES2NET` (`speaker_embedding_eres2net.onnx`) или `CAMPLUS` (`speaker_embedding_camplus.onnx`). CAM++ обучена на китайской речи и путает два женских голоса — [`../docs/benches/bench-eres2net.md`](../docs/benches/bench-eres2net.md) |
 | `autoClusterThreshold` | `0.80f` | Distance threshold для batch-авторежима: **ниже → больше говорящих**. При заданном `expectedSpeakers` не используется |
 | `onlineClusterThreshold` | `0.45f` | Косинусный порог streaming-кластеризации: **выше → больше говорящих**, `0..1` |
 | `maxOnlineSpeakers` | `20` | Потолок говорящих в стриме, `>= 1` |
@@ -136,11 +136,11 @@ sealed interface StreamingEvent {
 | `vad: VadConfig` | см. ниже | Только streaming |
 | `agc: AgcConfig` | см. ниже | АРУ перед VAD, только streaming |
 
-`VadConfig`: `threshold = 0.35f`, `minSilenceMs = 450`, `minSpeechMs = 250`, `maxSpeechMs = 25_000`. Порог ниже стандартного для Silero (0,5): при 0,5 терялась речь в шуме — [`docs/bench-vad-noise.md`](../docs/bench-vad-noise.md).
+`VadConfig`: `threshold = 0.35f`, `minSilenceMs = 450`, `minSpeechMs = 250`, `maxSpeechMs = 25_000`. Порог ниже стандартного для Silero (0,5): при 0,5 терялась речь в шуме — [`../docs/benches/bench-vad-noise.md`](../docs/benches/bench-vad-noise.md).
 
 `AgcConfig`: `enabled = true`, `targetDbfs = -20f`, `maxGainDb = 24f`. Без АРУ Silero VAD пропускал собеседника, который сидит дальше от микрофона (−33…−37 dBFS при фоне −47): на реальной записи терялось ~9 с разборчивой речи, и порог VAD 0,25 не помогал. АРУ работает только по прошлому сигналу, без задержки; громкую речь не приглушает; на кадрах не громче фона усиление не растёт, а в паузах возвращается к 0 дБ. Выровненный сигнал видит только VAD: ASR и embedding получают исходный отрезок (кольцевой буфер на 90 с), иначе меняющееся усиление и поднятый фон сливали спикеров. Выключить — `AgcConfig(enabled = false)`.
 
-**Номера спикеров в streaming.** `Utterance` приходит с предварительной меткой онлайн-кластеризатора: он решает по одной реплике и только по прошлому. В `Done` все реплики сессии перекластеризуются разом (`SpeakerReclusterer`), и номера могут измениться — UI должен заменить метки по `Done`. Зачем: онлайн-кластеризатор ждёт 2,5 с речи нового голоса и сливал собеседника, который отвечает коротко («да», «понятно»), с основным. На отложенной выборке (18 синтетических разговоров, параметры подбирались на другом наборе) ошибка атрибуции 25,1 → 12,7 %, верное число спикеров 9 → 13 из 18 — [`docs/bench-recluster.md`](../docs/bench-recluster.md). Порог `clusterPruneMinMs`/`clusterPruneMinFraction` теперь действует только в batch.
+**Номера спикеров в streaming.** `Utterance` приходит с предварительной меткой онлайн-кластеризатора: он решает по одной реплике и только по прошлому. В `Done` все реплики сессии перекластеризуются разом (`SpeakerReclusterer`), и номера могут измениться — UI должен заменить метки по `Done`. Зачем: онлайн-кластеризатор ждёт 2,5 с речи нового голоса и сливал собеседника, который отвечает коротко («да», «понятно»), с основным. На отложенной выборке (18 синтетических разговоров, параметры подбирались на другом наборе) ошибка атрибуции 25,1 → 12,7 %, верное число спикеров 9 → 13 из 18 — [`../docs/benches/bench-recluster.md`](../docs/benches/bench-recluster.md). Порог `clusterPruneMinMs`/`clusterPruneMinFraction` теперь действует только в batch.
 
 `SpeechConfig` и `VadConfig` проверяют значения в `init`: `numThreads >= 1`, `autoClusterThreshold` и `onlineClusterThreshold` в `0..1`, `maxOnlineSpeakers >= 1`, `threshold` в `0..1`, `minSilenceMs >= 0`, `minSpeechMs >= 0`, `maxSpeechMs > minSpeechMs`. Отдельных проверок в `load()` больше нет.
 
@@ -202,7 +202,7 @@ sealed interface StreamingEvent {
 
 `AudioConverter` в приложении уже выдаёт такой файл. Любой другой источник (галерея, шаринг, запись) сначала нужно прогнать через него. WAV с чанками между `fmt` и `data` (например, `LIST`), стерео или 44,1 кГц будет отклонён с `Failed(IllegalArgumentException)`.
 
-Конвертер приложения принимает файлы до ~18,6 ч, `SherpaVadTranscriber` — до 12 ч, batch — только до 60 минут. На эмуляторе проверена запись на 76 минут: WER и атрибуция спикеров те же, что на тех же диалогах по отдельности, память не растёт ([`docs/bench-long-audio.md`](../docs/bench-long-audio.md)). Длительность лучше проверять до `transcribe()`, иначе `Failed` придёт уже после конвертации.
+Конвертер приложения принимает файлы до ~18,6 ч, `SherpaVadTranscriber` — до 12 ч, batch — только до 60 минут. На эмуляторе проверена запись на 76 минут: WER и атрибуция спикеров те же, что на тех же диалогах по отдельности, память не растёт ([`../docs/benches/bench-long-audio.md`](../docs/benches/bench-long-audio.md)). Длительность лучше проверять до `transcribe()`, иначе `Failed` придёт уже после конвертации.
 
 ## Streaming
 
@@ -393,7 +393,7 @@ SHA-256 архива — `00020e21641414106a335ab4e5d2bfe18d91cc8a383d645a718344
 
 ## Коррекция текста
 
-Постобработка расшифровки, подробности — [`docs/llm-correction.md`](../docs/llm-correction.md):
+Постобработка расшифровки, подробности — [`../docs/benches/llm-correction.md`](../docs/benches/llm-correction.md):
 `LexiconCorrector` (словарь, ~0 мс) и `LlmCorrector` (локальная LLM через
 `TextGenerator`, с маскированием чисел, гардом на 10 % правки и бюджетом
 времени). Прогоняются `TranscriptPostprocessor` по готовой расшифровке — после
@@ -401,7 +401,7 @@ SHA-256 архива — `00020e21641414106a335ab4e5d2bfe18d91cc8a383d645a718344
 
 Декодер не трогали: остаётся `greedy_search`. Для NeMo-CTC `modified_beam_search`
 в sherpa-onnx 1.13.0 роняет процесс, для RNN-T он возможен, но не измерен —
-[`docs/bench-decoding.md`](../docs/bench-decoding.md).
+[`../docs/benches/bench-decoding.md`](../docs/benches/bench-decoding.md).
 
 Модуль не тянет нативный рантайм LLM: приложение подставляет реализацию
 `TextGenerator` (llama.cpp через JNI, MediaPipe GenAI). Вся логика правки,

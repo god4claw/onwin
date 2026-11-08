@@ -10,7 +10,7 @@ x86_64, один прогон на файл.
 `3dspeaker_speech_campplus_sv_zh-cn_16k-common` обучена на китайской речи и
 плохо различает два женских голоса. На живых голосах это видно сразу.
 
-Новый набор с живыми голосами — `speech/eval/make_dialogs.py`: реплики трёх
+Новый набор с живыми голосами — `../../speech/eval/make_dialogs.py`: реплики трёх
 актёров корпуса [Dialogs](https://huggingface.co/datasets/langswap/dialogs-ru-emotional-conversations)
 (OpenRAIL; Маша Ж, Света Ж, Дима М) склеены в разговоры по 24 реплики с
 естественными паузами, условия clean / noise (розовый шум ~15 дБ) / far (второй
@@ -77,7 +77,7 @@ PSS процесса бенчмарка ~570 МБ.
 ## Веса
 
 ERes2Net нет в архиве `speech-models-v1`: файл скачивается отдельно по
-публичной ссылке релиза sherpa-onnx (команды — в `INSTALL.md`),
+публичной ссылке релиза sherpa-onnx (команды — в `../../INSTALL.md`),
 SHA-256 `c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5`.
 `verifyBundledModels` и `load()` без него падают.
 
@@ -89,4 +89,4 @@ SHA-256 `c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5`.
 - `ModelRegistry` / `BundledModels` / `models.sha256`: шестой файл.
 - Бенчмарк: `--embedding-model`, `--recluster-threshold`, `--dump-embeddings`
   (embedding-и реплик в JSON — для подбора без устройства).
-- Оценка: `speech/eval/make_dialogs.py`.
+- Оценка: `../../speech/eval/make_dialogs.py`.

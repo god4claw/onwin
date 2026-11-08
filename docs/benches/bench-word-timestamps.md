@@ -86,4 +86,4 @@ TTS вокруг фразы, поэтому подгонять границы п
 - Бенчмарк: `--speaker-change-window-ms/-hop-ms/-min-ms`.
 
 Сырые JSON прогонов в git не хранятся (локально — `bench-results/`): повторить
-можно бенчмарком `speech/scripts/benchmark.sh`.
+можно бенчмарком `../../speech/scripts/benchmark.sh`.

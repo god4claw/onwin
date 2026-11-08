@@ -65,12 +65,12 @@ stream/batch → Done(segments) → release() ASR → postprocess → экспо
 
 `:speech` не тянет нативный рантайм: он весит десятки мегабайт и собирается
 под каждый ABI. Приложение подставляет `TextGenerator` — и это уже не пример,
-а модуль [`llm/`](../llm/README.md):
+а модуль [`../../llm`](../../llm/README.md):
 
 - `OnnxGenAiGenerator` реализует `TextGenerator` поверх ONNX Runtime GenAI
-  (AAR 0.19.0 в `llm/local-repo`, ядро ORT 1.31.1);
+  (AAR 0.19.0 в `../../llm/local-repo`, ядро ORT 1.31.1);
 - модель Qwen2.5-0.5B-Instruct (ONNX GenAI, int4) ставится отдельно скриптами
-  `llm/scripts/fetch-model.ps1` и `llm/scripts/push-model.ps1` — в APK её нет;
+  `../../llm/scripts/fetch-model.ps1` и `llm/scripts/push-model.ps1` — в APK её нет;
 - `OnDeviceLlm.create(context)` собирает на одной модели проходы:
   `corrector` (`CompositeCorrector`: словарь + `LlmCorrector`), `analyzer`
   (`LlmDialogueAnalyzer`: имена спикеров и резюме) и опциональный
@@ -131,8 +131,8 @@ Pixel_8_API36 (x86_64, Android 16), 2026-11-07, `:llm:connectedDebugAndroidTest`
 
 ## Как проверять
 
-Стенд уже есть — `speech/BENCHMARK.md`, золотой набор
-(`docs/bench-golden-baseline.md`). Порядок:
+Стенд уже есть — `../../speech/BENCHMARK.md`, золотой набор
+(`bench-golden-baseline.md`). Порядок:
 
 1. Прогнать golden set как есть, записать WER и spkErr (базовая точка: 16,0 % /
    11,5 %).

@@ -35,7 +35,7 @@ import java.util.Objects;
 public class TestAudioProvider extends ContentProvider {
 
     /** Authority из androidTest/AndroidManifest.xml. */
-    public static final String AUTHORITY = "com.example.onwin.test.audio";
+    public static final String AUTHORITY = "io.github.god4claw.onwin.test.audio";
 
     /** URI файла {@code name} из {@code assets/audio} в режиме {@code mode} ({@code file} или {@code pipe}). */
     @NonNull

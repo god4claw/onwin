@@ -30,19 +30,24 @@ import kotlinx.coroutines.withContext
  * Экземпляр не потокобезопасен по генерации: [load], [generate] и [release]
  * вызываются последовательно, как и весь пайплайн распознавания.
  *
- * @param modelDir каталог с `genai_config.json`, `model.onnx` и токенизатором.
+ * @param prepareModelDirectory возвращает каталог с конфигом, весами и токенизатором.
  * @param systemPrompt системная роль; по умолчанию — «правь, а не переписывай».
  */
-class OnnxGenAiGenerator(
-    private val modelDir: File,
+class OnnxGenAiGenerator internal constructor(
+    private val prepareModelDirectory: suspend () -> File,
     private val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
 ) : TextGenerator {
+
+    constructor(modelDir: File, systemPrompt: String = DEFAULT_SYSTEM_PROMPT) : this({ modelDir }, systemPrompt)
 
     private val lock = Any()
     private var model: Model? = null
     private var tokenizer: Tokenizer? = null
 
     override suspend fun load(): Unit = withContext(Dispatchers.IO) {
+        if (synchronized(lock) { model != null }) return@withContext
+        val modelDir = prepareModelDirectory()
+        currentCoroutineContext().ensureActive()
         synchronized(lock) {
             if (this@OnnxGenAiGenerator.model != null) return@synchronized
             check(LlmModelDirectory.isComplete(modelDir)) {

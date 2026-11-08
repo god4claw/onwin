@@ -14,6 +14,7 @@ local.properties
 # LLM-модель (~0,9 ГБ) скачивается llm/scripts/fetch-model.ps1 и в git не входит.
 llm/models/
 /llm-model-v1.zip
+/llm-model-v1.zip
 
 # Артефакты сборки модуля :llm.
 llm/build/
