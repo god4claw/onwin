@@ -20,7 +20,7 @@ LLM-модель (резюме, имена спикеров, протокол) �
 
 | Компонент | Значение |
 |---|---|
-| JDK | 17 |
+| JDK для Gradle daemon | 25 (настроен в `gradle/gradle-daemon-jvm.properties`) |
 | Android SDK | 37 |
 | Устройство | arm64-v8a, Android 10+ (API 29) |
 | Свободное место | ≈ 2,5 ГБ (APK ~1 ГБ и распаковка LLM ~838 МиБ) |
@@ -51,7 +51,7 @@ Expand-Archive -Path model-weights-v1.zip -DestinationPath speech/src/main/asset
 - **Модель:** Qwen2.5-0.5B-Instruct, ONNX GenAI, int4 (`cpu-int4-rtn-block-32-acc-level-4`).
 - **Размер:** 10 файлов, 877 989 556 байт (~837 МиБ) в распакованном виде.
 - **Лицензия:** Apache-2.0; базовые веса — Qwen/Qwen2.5-0.5B-Instruct.
-- **Ассет:** `llm-model-v1.zip` — 509 493 843 байт (485,9 МиБ), SHA-256
+- **Ассет:** `llm-model-v1.zip` из [релиза модели](https://github.com/god4claw/onwin/releases/tag/llm-model-v1) — 509 493 843 байт (485,9 МиБ), SHA-256
   `eafc3c6fd909bdc684510011ba1d043aac7ca2f7ae33be1f9bd78d80f60630c5`.
 
 Корень архива — `qwen2.5-0.5b-instruct-int4/`; внутри 10 файлов из `llm/models.sha256`.
@@ -75,9 +75,10 @@ sha256sum llm-model-v1.zip
 ./gradlew :llm:verifyLlmModel
 ```
 
-Альтернатива — Hugging Face:
+Для отдельного комплекта ручных тестов вместо распаковки архива можно использовать Hugging Face:
 [xiaoyao9184/Qwen2.5-0.5B-Instruct-onnx-genai](https://huggingface.co/xiaoyao9184/Qwen2.5-0.5B-Instruct-onnx-genai)
-или `llm/scripts/fetch-model.ps1`.
+или `llm/scripts/fetch-model.ps1`. Для сборки приложения всё равно нужен архив
+`llm-model-v1.zip` в корне проекта.
 
 ### Сборка и установка
 
@@ -91,6 +92,8 @@ Release (arm64-v8a, R8):
 ```powershell
 .\gradlew.bat :app:assembleRelease
 ```
+
+Текущая конфигурация подписывает release APK debug-ключом.
 
 ## Использование
 
@@ -123,7 +126,7 @@ JSON сохраняет массив `transcript` (текст, id спикера
 
 После обработки на экране записи доступны:
 
-- **«Кратко»** и **чипы «Спикер N — Имя»** появляются автоматически после распознавания.
+- После распознавания приложение автоматически пытается сформировать **«Кратко»** и **чипы «Спикер N — Имя»**. Они отображаются, если удалось получить подходящий результат.
 - **«Провести коррекцию»** запускает правку реплик. Во время работы на кнопке виден индикатор. Для англоязычных расшифровок правка недоступна.
 - **«Составить протокол»** — протокол совещания (кратко / решения / поручения)
   с экспортом в `.md`.
