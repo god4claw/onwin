@@ -20,11 +20,12 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven { url = uri("speech/local-repo") }
+        maven { url = uri("llm/local-repo") }
     }
 }
 
 rootProject.name = "OnWin"
 include(":app")
 include(":speech")
-include(":baselineprofile")
 include(":llm")
+include(":baselineprofile")

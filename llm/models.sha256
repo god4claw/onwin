@@ -1,0 +1,17 @@
+# SHA-256 модели для llm/scripts/fetch-model.ps1 и задачи :llm:verifyLlmModel.
+# Формат: <sha256>  <путь относительно llm/models>.
+#
+# Модель: Qwen2.5-0.5B-Instruct, ONNX GenAI, int4 (cpu-int4-rtn-block-32-acc-level-4).
+# Источник: huggingface.co/xiaoyao9184/Qwen2.5-0.5B-Instruct-onnx-genai.
+# Базовые веса: Qwen/Qwen2.5-0.5B-Instruct (Apache-2.0).
+# В git модель не входит: ~0,9 ГБ.
+91451609de365f1b383aae19c6bd935e7b0778c610c83e9bfadcd647f3c3e573  qwen2.5-0.5b-instruct-int4/genai_config.json
+ce313fa11d3d5b12a752f27531d745514fab253f5ff8690889717d73d9599382  qwen2.5-0.5b-instruct-int4/model.onnx
+19a2860d7b120cf2d5c5d91c516ecbbbb9d2f7ce2ddbee75bf4c4c6d1ad26e02  qwen2.5-0.5b-instruct-int4/model.onnx.data
+9c5ae00e602b8860cbd784ba82a8aa14e8feecec692e7076590d014d7b7fdafa  qwen2.5-0.5b-instruct-int4/tokenizer.json
+0a04a9d7d4a62b28482bdfe726c122756de85714fb64166ace92ae75b8f57614  qwen2.5-0.5b-instruct-int4/tokenizer_config.json
+58b54bbe36fc752f79a24a271ef66a0a0830054b4dfad94bde757d851968060b  qwen2.5-0.5b-instruct-int4/added_tokens.json
+76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd  qwen2.5-0.5b-instruct-int4/special_tokens_map.json
+cd8e9439f0570856fd70470bf8889ebd8b5d1107207f67a5efb46e342330527f  qwen2.5-0.5b-instruct-int4/chat_template.jinja
+8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5  qwen2.5-0.5b-instruct-int4/merges.txt
+ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910  qwen2.5-0.5b-instruct-int4/vocab.json

@@ -7,7 +7,10 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import com.example.onwin.data.database.entity.SegmentEntity
 import com.example.onwin.data.database.entity.SessionEntity
+import com.example.onwin.data.database.entity.SessionNotesEntity
+import com.example.onwin.data.database.entity.SessionProtocolEntity
 import com.example.onwin.data.database.entity.SpeakerNameEntity
+import com.example.onwin.data.database.entity.SpeakerSuggestionEntity
 import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.data.database.model.SessionDetailRow
 import com.example.onwin.data.database.model.SessionListRow
@@ -142,4 +145,48 @@ abstract class SessionDao {
     /** Убирает имя спикера, в UI вернётся «Спикер N». */
     @Query("DELETE FROM speaker_names WHERE sessionId = :sessionId AND speaker = :speaker")
     abstract suspend fun deleteSpeakerName(sessionId: String, speaker: Int)
+
+    /**
+     * Сохраняет заметки LLM и предложенные имена, заменяя прежние.
+     *
+     * Пустое резюме и пустая карта имён допустимы: анализатор мог найти только
+     * одно из двух. Обе таблицы чистятся здесь же, чтобы повторный анализ
+     * не оставлял старых предложений.
+     */
+    @Transaction
+    open suspend fun saveAnalysis(
+        sessionId: String,
+        summary: String,
+        speakerNames: Map<Int, String>,
+        createdAt: Long,
+    ) {
+        clearNotes(sessionId)
+        clearSuggestions(sessionId)
+        if (summary.isNotBlank()) {
+            upsertNotes(SessionNotesEntity(sessionId, summary, createdAt))
+        }
+        speakerNames.forEach { (speaker, name) ->
+            upsertSuggestion(SpeakerSuggestionEntity(sessionId, speaker, name))
+        }
+    }
+
+    @Upsert
+    protected abstract suspend fun upsertNotes(notes: SessionNotesEntity)
+
+    @Query("DELETE FROM session_notes WHERE sessionId = :sessionId")
+    abstract suspend fun clearNotes(sessionId: String)
+
+    @Upsert
+    protected abstract suspend fun upsertSuggestion(suggestion: SpeakerSuggestionEntity)
+
+    @Query("DELETE FROM speaker_suggestions WHERE sessionId = :sessionId")
+    abstract suspend fun clearSuggestions(sessionId: String)
+
+    /** Сохраняет протокол, заменяя прежний. */
+    @Upsert
+    abstract suspend fun upsertProtocol(protocol: SessionProtocolEntity)
+
+    /** Убирает протокол: при повторе, отмене или повторной генерации. */
+    @Query("DELETE FROM session_protocols WHERE sessionId = :sessionId")
+    abstract suspend fun clearProtocol(sessionId: String)
 }

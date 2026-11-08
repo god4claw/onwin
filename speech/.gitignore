@@ -3,3 +3,6 @@ src/main/assets/models/*.onnx
 src/main/assets/asr/*.onnx
 src/main/assets/asr/*.txt
 src/main/assets/vad/*.onnx
+# Стриминговые веса (zipformer/T-one) — тоже не для git.
+src/main/assets/streaming/*.onnx
+src/main/assets/streaming/*.txt

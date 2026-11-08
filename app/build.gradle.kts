@@ -64,6 +64,13 @@ android {
     androidResources {
         noCompress += listOf("onnx", "txt")
     }
+    packaging {
+        jniLibs {
+            // Приложение собирается только под arm64; для x86 sherpa-onnx и
+            // onnxruntime-android везут разные libonnxruntime.so с одним именем.
+            excludes += listOf("**/x86/**", "**/armeabi-v7a/**")
+        }
+    }
     buildFeatures {
         compose = true
     }
@@ -96,6 +103,7 @@ ksp {
 
 dependencies {
     implementation(project(":speech"))
+    implementation(project(":llm"))
     baselineProfile(project(":baselineprofile"))
     implementation(libs.androidx.profileinstaller)
     implementation(platform(libs.androidx.compose.bom))

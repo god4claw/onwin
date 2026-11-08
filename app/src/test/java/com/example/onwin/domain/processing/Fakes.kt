@@ -13,7 +13,11 @@ import com.example.speech.api.SpeechConfig
 import com.example.speech.api.Stage
 import com.example.speech.api.StreamingEvent
 import com.example.speech.api.StreamingTranscriber
+import com.example.speech.api.TextCorrector
 import com.example.speech.api.Transcriber
+import com.example.speech.api.TranscriptAnalyzer
+import com.example.speech.api.DialogueNotes
+import com.example.speech.api.ProtocolNotes
 import com.example.speech.api.TranscriptionEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +37,9 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
 
     private val sessions = MutableStateFlow<Map<String, Session>>(emptyMap())
     private val speakerNames = MutableStateFlow<Map<String, Map<Int, String>>>(emptyMap())
+    private val summaries = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val suggestions = MutableStateFlow<Map<String, Map<Int, String>>>(emptyMap())
+    private val protocols = MutableStateFlow<Map<String, ProtocolNotes>>(emptyMap())
     private val segments = mutableMapOf<String, MutableList<Segment>>()
     private val history = mutableMapOf<String, MutableList<SessionStatus>>()
 
@@ -60,12 +67,15 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
         sessions.map { all -> all.values.map { SessionListItem(it, segments(it.id).size, 0) } }
 
     override fun observeSession(id: String): Flow<SessionDetail?> =
-        combine(sessions, speakerNames) { all, names ->
+        combine(sessions, speakerNames, summaries, suggestions, protocols) { all, names, notes, suggested, protocols ->
             all[id]?.let { session ->
                 SessionDetail(
                     session,
                     segments(id).mapIndexed { i, s -> TranscriptSegment(i, s.speaker, s.startMs, s.endMs, s.text) },
                     names[id].orEmpty().map { (speaker, name) -> SpeakerName(speaker, name) },
+                    summary = notes[id],
+                    suggestedNames = suggested[id].orEmpty().map { (speaker, name) -> SpeakerName(speaker, name) },
+                    protocol = protocols[id],
                 )
             }
         }
@@ -119,6 +129,33 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
         segments[id]?.clear()
     }
 
+    override suspend fun saveAnalysis(id: String, summary: String, speakerNames: Map<Int, String>) {
+        check(exists(id)) { "Missing session $id" }
+        if (summary.isBlank()) summaries.value -= id else summaries.value += id to summary
+        if (speakerNames.isEmpty()) suggestions.value -= id else suggestions.value += id to speakerNames
+    }
+
+    override suspend fun clearAnalysis(id: String) {
+        summaries.value -= id
+        suggestions.value -= id
+        protocols.value -= id
+    }
+
+    override suspend fun saveProtocol(id: String, protocol: ProtocolNotes) {
+        check(exists(id)) { "Missing session $id" }
+        protocols.value += id to protocol
+    }
+
+    override suspend fun clearProtocol(id: String) {
+        protocols.value -= id
+    }
+
+    /** Заметки LLM в памяти: для проверок без Flow. */
+    fun summary(id: String): String? = summaries.value[id]
+
+    /** Предложенные имена в памяти: для проверок без Flow. */
+    fun suggestedNames(id: String): Map<Int, String> = suggestions.value[id].orEmpty()
+
     override suspend fun failUnfinished(errorCode: ErrorCode): Int {
         val unfinished = sessions.value.values.filter { it.status.isActive }
         unfinished.forEach { updateStatus(it.id, SessionStatus.FAILED, errorCode) }
@@ -135,6 +172,9 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
         sessions.value -= id
         segments -= id
         speakerNames.value -= id
+        summaries.value -= id
+        suggestions.value -= id
+        protocols.value -= id
     }
 
     override fun wavFile(fileName: String): File = File(recordingsDir, fileName)
@@ -272,7 +312,6 @@ class FakeForegroundStarter(private val events: MutableList<String>) : Foregroun
 
 /** Считает захваты и освобождения. */
 class FakeWakeLock : WakeLockHolder {
-
     var acquires = 0
     var releases = 0
     private var held = false
@@ -292,3 +331,57 @@ class FakeWakeLock : WakeLockHolder {
         assertFalse("still held", held)
     }
 }
+
+/**
+ * [TextCorrector] по сценарию [behavior]; пишет загрузки и освобождения в общий
+ * [events], чтобы тесты видели порядок относительно release() движка.
+ */
+class FakeTextCorrector(private val events: MutableList<String> = mutableListOf()) : TextCorrector {
+
+    var loads = 0
+    var releases = 0
+
+    /** Сценарий правки; по умолчанию возвращает текст как есть. */
+    var behavior: suspend (String) -> String = { it }
+
+    override suspend fun load() {
+        loads++
+        events += "corrector load"
+    }
+
+    override fun release() {
+        releases++
+        events += "corrector release"
+    }
+
+    override suspend fun correct(text: String): String = behavior(text)
+}
+
+/**
+ * [TranscriptAnalyzer] по сценарию [behavior]; по умолчанию возвращает имя и
+ * резюме. Запоминает, какие реплики получил: тест проверяет, что анализ идёт
+ * уже по исправленному тексту.
+ */
+class FakeTranscriptAnalyzer : TranscriptAnalyzer {
+
+    var loads = 0
+    var releases = 0
+    var lastSegments: List<Segment>? = null
+    var behavior: suspend (List<Segment>) -> DialogueNotes? = {
+        DialogueNotes(speakerNames = mapOf(0 to "Анна"), summary = "Обсудили сроки и договорились о встрече.")
+    }
+
+    override suspend fun load() {
+        loads++
+    }
+
+    override suspend fun analyze(segments: List<Segment>): DialogueNotes? {
+        lastSegments = segments
+        return behavior(segments)
+    }
+
+    override fun release() {
+        releases++
+    }
+}
+

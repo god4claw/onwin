@@ -3,6 +3,7 @@ package com.example.onwin.ui.screens.recording
 import android.content.ActivityNotFoundException
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +46,7 @@ internal fun ActiveRecordingRoute(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val exporting by viewModel.isExporting.collectAsStateWithLifecycle()
+    val protocolExporting by viewModel.isProtocolExporting.collectAsStateWithLifecycle()
     val onboardingStep by viewModel.transcriptOnboardingStep.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -67,10 +69,26 @@ internal fun ActiveRecordingRoute(
         pendingExportFormat = null
         if (uri != null && format != null) viewModel.exportTranscript(uri, format)
     }
+
+    var pickingProtocol by rememberSaveable(viewModel.sessionId) { mutableStateOf(false) }
+    val protocolPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+            pickingProtocol = false
+            if (uri != null) viewModel.exportProtocol(uri)
+        }
+
     LaunchedEffect(viewModel, lifecycle, context) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             viewModel.exportResults.collect { saved ->
                 val message = if (saved) R.string.recording_export_saved else R.string.recording_export_save_failed
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    LaunchedEffect(viewModel, lifecycle, context) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            viewModel.protocolExportResults.collect { saved ->
+                val message = if (saved) R.string.llm_protocol_saved else R.string.llm_protocol_save_failed
                 Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             }
         }
@@ -107,7 +125,7 @@ internal fun ActiveRecordingRoute(
     val visibleOnboardingStep = onboardingStep?.takeIf {
         lifecycleState == Lifecycle.State.RESUMED && it != TranscriptOnboardingStep.COMPLETE &&
             speakerToEdit == null && segmentToEdit == null && !showExportFormats &&
-            pendingExportFormat == null && !showCancelConfirmation
+            pendingExportFormat == null && !pickingProtocol && !showCancelConfirmation
     }
 
     ActiveRecordingTheme {
@@ -127,6 +145,24 @@ internal fun ActiveRecordingRoute(
             onCancel = { confirmCancelProcessing = processing },
             onRenameSpeaker = { editingSpeaker = it },
             onEditSegment = { editingSegment = it },
+            onApplySuggestedName = viewModel::applySuggestedName,
+            protocolState = state.protocol,
+            protocolExporting = pickingProtocol || protocolExporting,
+            onGenerateProtocol = viewModel::generateProtocol,
+            onCancelProtocol = viewModel::cancelProtocol,
+            onExportProtocol = completedSession?.let { session ->
+                {
+                    if (!pickingProtocol && !viewModel.isProtocolExporting.value) {
+                        pickingProtocol = true
+                        try {
+                            protocolPicker.launch(protocolFileName(session.title))
+                        } catch (_: ActivityNotFoundException) {
+                            pickingProtocol = false
+                            Toast.makeText(context, R.string.llm_protocol_picker_unavailable, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            },
             playback = playback.state,
             playbackPosition = playback.positionState,
             onTogglePlayback = playback::toggle,
@@ -222,4 +258,11 @@ internal fun ActiveRecordingRoute(
             }
         }
     }
+}
+
+private val invalidFileNameCharacters = Regex("""[\\/:*?"<>|\p{Cntrl}]""")
+
+private fun protocolFileName(title: String): String {
+    val name = title.trim().replace(invalidFileNameCharacters, "_").trimEnd('.', ' ')
+    return "${name.ifEmpty { "protocol" }}.md"
 }

@@ -17,6 +17,9 @@ enum class SessionStatus {
     /** Идёт загрузка моделей, диаризация или распознавание. */
     TRANSCRIBING,
 
+    /** Текст расшифровки правит локальная LLM. Ошибка этого этапа не делает сессию `FAILED`. */
+    CORRECTING,
+
     /** Готово, сегменты финальные. */
     DONE,
 
@@ -28,7 +31,8 @@ enum class SessionStatus {
 
     /** Сессия ждёт обработки или обрабатывается. */
     val isActive: Boolean
-        get() = this == RECORDING || this == QUEUED || this == CONVERTING || this == TRANSCRIBING
+        get() = this == RECORDING || this == QUEUED || this == CONVERTING ||
+            this == TRANSCRIBING || this == CORRECTING
 
     /** Сессию можно запустить заново через `retry`. */
     val isRetryable: Boolean

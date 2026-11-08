@@ -17,9 +17,10 @@ class FormatTest {
     }
 
     @Test
-    fun stagesAreNumberedOneToThree_exceptModelLoading() {
-        assertEquals(listOf(1, null, 2, 3), ProcessingStage.entries.map { it.step })
+    fun stagesAreNumberedOneToThree_exceptModelLoadingAndCorrection() {
+        assertEquals(listOf(1, null, 2, 3, null), ProcessingStage.entries.map { it.step })
         assertEquals(STEP_COUNT, ProcessingStage.entries.mapNotNull { it.step }.max())
         assertNull(ProcessingStage.LOADING_MODELS.step)
+        assertNull(ProcessingStage.CORRECTING.step)
     }
 }

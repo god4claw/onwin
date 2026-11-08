@@ -150,6 +150,70 @@ rm -r parakeet.tar.bz2 "$p"
 лежат подкаталоги `models/`, `asr/`, `vad/`. Не распаковывайте во вложенную
 папку: `verifyBundledModels` не найдёт файлы.
 
+## 2б. LLM-модель (необязательно)
+
+Правка расшифровки локальной LLM включается только если на устройстве есть модель.
+Без неё приложение работает как раньше: этап `CORRECTING` просто не запускается.
+
+Модель — Qwen2.5-0.5B-Instruct (ONNX GenAI, int4), 10 файлов, 877 989 556 байт
+(~837 МиБ) в распакованном виде. В APK и в git не входит:
+[`llm/README.md`](llm/README.md).
+
+Скачать готовый архив из релиза (репозиторий приватный — только под своей учётной
+записью; `curl` без токена ассет не скачает):
+
+1. **Releases → `llm-model-v1` → Assets → `llm-model-v1.zip`**:
+   [`https://github.com/god4claw/onwin/releases/tag/llm-model-v1`](https://github.com/god4claw/onwin/releases/tag/llm-model-v1).
+2. Положите `llm-model-v1.zip` в корень репозитория и распакуйте в `llm/models` —
+   внутри архива уже лежит каталог `qwen2.5-0.5b-instruct-int4/`.
+
+PowerShell:
+
+```powershell
+Expand-Archive -Path "llm-model-v1.zip" -DestinationPath "llm\models" -Force
+(Get-FileHash llm-model-v1.zip -Algorithm SHA256).Hash
+# eafc3c6fd909bdc684510011ba1d043aac7ca2f7ae33be1f9bd78d80f60630c5
+.\gradlew.bat :llm:verifyLlmModel
+pwsh -File llm/scripts/push-model.ps1
+```
+
+bash:
+
+```bash
+unzip -o llm-model-v1.zip -d llm/models
+sha256sum llm-model-v1.zip
+# eafc3c6fd909bdc684510011ba1d043aac7ca2f7ae33be1f9bd78d80f60630c5  llm-model-v1.zip
+./gradlew :llm:verifyLlmModel
+```
+
+Архив `llm-model-v1.zip` — 509 493 843 байт (485,9 МиБ), SHA-256
+`eafc3c6fd909bdc684510011ba1d043aac7ca2f7ae33be1f9bd78d80f60630c5`.
+После распаковки в `llm/models/qwen2.5-0.5b-instruct-int4/` должно быть 10 файлов
+общим размером 877 989 556 байт.
+
+Альтернатива — скачать с Hugging Face скриптом; он сам сверяет SHA-256 каждого файла
+с `llm/models.sha256`:
+
+```powershell
+pwsh -File llm/scripts/fetch-model.ps1
+.\gradlew.bat :llm:verifyLlmModel
+pwsh -File llm/scripts/push-model.ps1
+```
+
+Источник: [xiaoyao9184/Qwen2.5-0.5B-Instruct-onnx-genai](https://huggingface.co/xiaoyao9184/Qwen2.5-0.5B-Instruct-onnx-genai/tree/main/cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4),
+каталог `cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4`.
+
+`push-model.ps1` копирует модель в `/sdcard/Android/data/com.example.onwin/files/llm` —
+приложение читает её оттуда без разрешений на внешнее хранилище. Каталог можно задать:
+`-Package com.example.onwin -Serial emulator-5554`.
+
+Проверка на устройстве (нужна модель, залитая в тестовый пакет):
+
+```powershell
+pwsh -File llm/scripts/push-model.ps1 -Package com.example.llm.test
+.\gradlew.bat :llm:connectedDebugAndroidTest
+```
+
 ## 3. Сборка и установка
 
 Debug-APK:

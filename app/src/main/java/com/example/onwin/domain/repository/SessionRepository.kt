@@ -5,6 +5,7 @@ import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.SessionDetail
 import com.example.onwin.domain.model.SessionListItem
 import com.example.onwin.domain.model.SessionStatus
+import com.example.speech.api.ProtocolNotes
 import com.example.speech.api.Segment
 import kotlinx.coroutines.flow.Flow
 import java.io.File
@@ -58,6 +59,21 @@ interface SessionRepository {
 
     /** Удаляет все сегменты сессии. */
     suspend fun clearSegments(id: String)
+
+    /**
+     * Сохраняет заметки LLM: резюме и предложенные имена спикеров.
+     * Прежние заметки заменяются; пустые значения допустимы.
+     */
+    suspend fun saveAnalysis(id: String, summary: String, speakerNames: Map<Int, String>)
+
+    /** Убирает заметки LLM: при повторе обработки или отмене. */
+    suspend fun clearAnalysis(id: String)
+
+    /** Сохраняет опциональный протокол сессии, заменяя прежний. */
+    suspend fun saveProtocol(id: String, protocol: ProtocolNotes)
+
+    /** Убирает протокол сессии. */
+    suspend fun clearProtocol(id: String)
 
     /**
      * Переводит сессии, оставшиеся в `RECORDING`/`QUEUED`/`CONVERTING`/`TRANSCRIBING`, в `FAILED` с [errorCode].

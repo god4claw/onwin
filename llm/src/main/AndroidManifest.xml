@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-</manifest>
+<!--
+    Модуль сам ничего не объявляет: контракт TextGenerator уже есть в :speech,
+    а AAR ONNX Runtime GenAI лежит в local-repo с урезанным манифестом.
+-->
+<manifest />

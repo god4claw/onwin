@@ -15,11 +15,14 @@ import com.example.onwin.domain.processing.AudioToWav
 import com.example.onwin.domain.processing.DefaultProcessingController
 import com.example.onwin.domain.processing.MicrophoneRecorder
 import com.example.onwin.domain.processing.ProcessingController
+import com.example.onwin.domain.processing.ProtocolService
 import com.example.onwin.domain.processing.WakeLockHolder
 import com.example.onwin.domain.repository.SessionRepository
 import com.example.onwin.domain.repository.TranscriptOnboardingRepository
 import com.example.onwin.domain.repository.WelcomeRepository
 import com.example.onwin.ui.notification.ServiceForegroundStarter
+import com.example.llm.OnDeviceLlm
+import com.example.speech.api.ProtocolAnalyzer
 import com.example.speech.api.SpeechConfig
 import com.example.speech.api.Transcriber
 import com.example.speech.impl.SherpaVadTranscriber
@@ -72,6 +75,22 @@ object AppBindings {
 
     @Provides
     @Singleton
+    fun onDeviceLlm(@ApplicationContext context: Context): OnDeviceLlm? = OnDeviceLlm.create(context)
+
+    @Provides
+    fun protocolAnalyzer(llm: OnDeviceLlm?): ProtocolAnalyzer? = llm?.protocolAnalyzer
+
+    @Provides
+    @Singleton
+    fun protocolService(
+        analyzer: ProtocolAnalyzer?,
+        repository: SessionRepository,
+        controller: ProcessingController,
+        clock: Clock,
+    ): ProtocolService = ProtocolService(analyzer, repository, controller, clock)
+
+    @Provides
+    @Singleton
     fun processingController(
         @ApplicationContext context: Context,
         audio: AudioToWav,
@@ -81,20 +100,26 @@ object AppBindings {
         wakeLock: WakeLockHolder,
         clock: Clock,
         microphone: MicrophoneRecorder,
-    ): ProcessingController = DefaultProcessingController(
-        audio = audio,
-        repository = repository,
-        transcriber = transcriber,
-        speechConfig = SpeechConfig(),
-        foreground = foreground,
-        wakeLock = wakeLock,
-        clock = clock,
-        log = { Log.i("Processing", it) },
-        microphone = microphone,
-        livePcm = GrowingWavPcmSource,
-        recordingTitle = { context.getString(R.string.recording_name) },
-        onTranscriptionCompleted = (context as OnWinApp)::onTranscriptionCompleted,
-    )
+        llm: OnDeviceLlm?,
+    ): ProcessingController {
+        // Модели нет — коррекции и анализа нет: приложение работает ровно как раньше.
+        return DefaultProcessingController(
+            audio = audio,
+            repository = repository,
+            transcriber = transcriber,
+            speechConfig = SpeechConfig(),
+            foreground = foreground,
+            wakeLock = wakeLock,
+            clock = clock,
+            log = { Log.i("Processing", it) },
+            microphone = microphone,
+            livePcm = GrowingWavPcmSource,
+            recordingTitle = { context.getString(R.string.recording_name) },
+            onTranscriptionCompleted = (context as OnWinApp)::onTranscriptionCompleted,
+            corrector = llm?.corrector,
+            analyzer = llm?.analyzer,
+        )
+    }
 
     @Provides
     fun welcomeRepository(preferences: WelcomePreferences): WelcomeRepository = preferences
