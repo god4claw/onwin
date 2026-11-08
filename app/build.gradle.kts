@@ -54,7 +54,11 @@ android {
         }
         configureEach {
             //noinspection ChromeOsAbiSupport
-            ndk.abiFilters += if (name == "nonMinifiedRelease") profileAbi else "arm64-v8a"
+            ndk.abiFilters += when (name) {
+                "debug" -> listOf("arm64-v8a", "x86_64")
+                "nonMinifiedRelease" -> listOf(profileAbi)
+                else -> listOf("arm64-v8a")
+            }
         }
     }
     compileOptions {
@@ -66,8 +70,8 @@ android {
     }
     packaging {
         jniLibs {
-            // Приложение собирается только под arm64; для x86 sherpa-onnx и
-            // onnxruntime-android везут разные libonnxruntime.so с одним именем.
+            // 32-битный x86 не нужен: sherpa-onnx и onnxruntime-android
+            // везут для него разные libonnxruntime.so с одним именем.
             excludes += listOf("**/x86/**", "**/armeabi-v7a/**")
         }
     }

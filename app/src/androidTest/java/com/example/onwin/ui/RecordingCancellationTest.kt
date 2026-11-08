@@ -16,12 +16,14 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.onwin.data.database.AppDatabase
 import com.example.onwin.data.repository.RoomSessionRepository
 import com.example.onwin.data.export.TranscriptExporter
+import com.example.onwin.data.protocol.ProtocolExporter
 import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.ImportSubmission
 import com.example.onwin.domain.processing.ProcessingController
+import com.example.onwin.domain.processing.ProtocolService
 import com.example.onwin.domain.processing.ProcessingState
 import com.example.onwin.domain.processing.RecordingPhase
 import com.example.onwin.domain.processing.RecordingState
@@ -83,7 +85,9 @@ class RecordingCancellationTest {
                 repository,
                 controller,
                 TranscriptExporter(context),
-                completedTranscriptOnboarding,
+                protocolService = ProtocolService(null, repository, controller, Clock.systemUTC()),
+                protocolExporter = ProtocolExporter(context),
+                transcriptOnboarding = completedTranscriptOnboarding,
             )
             try {
                 compose.setContent { ActiveRecordingRoute(onBack = {}, viewModel = viewModel) }

@@ -49,7 +49,7 @@
     <string name="status_queued">В очереди</string>
     <string name="status_converting">Конвертация…</string>
     <string name="status_transcribing">Распознавание…</string>
-    <string name="status_correcting">Коррекция</string>
+    <string name="status_correcting">Коррекция…</string>
     <string name="status_done">Готово</string>
     <string name="status_failed">Ошибка</string>
     <string name="status_cancelled">Отменено</string>

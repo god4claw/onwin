@@ -28,12 +28,14 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.onwin.data.database.AppDatabase
 import com.example.onwin.data.repository.RoomSessionRepository
 import com.example.onwin.data.export.TranscriptExporter
+import com.example.onwin.data.protocol.ProtocolExporter
 import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.ImportSubmission
 import com.example.onwin.domain.processing.ProcessingController
+import com.example.onwin.domain.processing.ProtocolService
 import com.example.onwin.domain.processing.ProcessingState
 import com.example.onwin.ui.screens.recording.ActiveRecordingRoute
 import com.example.onwin.ui.screens.recording.RecordingViewModel
@@ -75,7 +77,9 @@ class TranscriptExportTest {
             repository,
             IdleController,
             TranscriptExporter(context),
-            completedTranscriptOnboarding,
+            protocolService = ProtocolService(null, repository, IdleController, Clock.systemUTC()),
+            protocolExporter = ProtocolExporter(context),
+            transcriptOnboarding = completedTranscriptOnboarding,
         )
         val picker = TestPicker(context)
         val resolver = context.contentResolver

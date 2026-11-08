@@ -39,7 +39,7 @@ dependencies {
     // Только контракт TextGenerator/TextCorrector: рантайм живёт здесь, а не в :speech.
     api(project(":speech"))
 
-    // AAR из GitHub Releases microsoft/onnxruntime-genai v0.19.0 (см. local-repo и README).
+    // GenAI v0.19.0 с нативным ядром без телеметрии и выравниванием ELF на 16 КБ.
     implementation("ai.onnxruntime.genai:onnxruntime-genai-android:0.19.0")
     // GenAI грузит ядро ORT отдельной библиотекой; та же версия, что в релизе GenAI.
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.31.1")

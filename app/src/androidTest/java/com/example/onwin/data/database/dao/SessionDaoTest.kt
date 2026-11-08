@@ -127,15 +127,21 @@ class SessionDaoTest {
 
     @Test
     fun failUnfinished_failsOnlyActiveSessions() = runBlocking {
+        val activeStatuses = setOf(
+            SessionStatus.RECORDING,
+            SessionStatus.QUEUED,
+            SessionStatus.CONVERTING,
+            SessionStatus.TRANSCRIBING,
+            SessionStatus.CORRECTING,
+        )
         for (status in SessionStatus.entries) dao.insertSession(session(status.name, status = status))
 
         val changed = dao.failUnfinished(ErrorCode.INTERRUPTED, updatedAt = 9_000)
 
-        // RECORDING joins QUEUED, CONVERTING, and TRANSCRIBING in crash recovery.
-        assertEquals(4, changed)
+        assertEquals(activeStatuses.size, changed)
         for (status in SessionStatus.entries) {
             val session = dao.getSession(status.name)!!
-            if (status.isActive) {
+            if (status in activeStatuses) {
                 assertEquals(SessionStatus.FAILED, session.status)
                 assertEquals(ErrorCode.INTERRUPTED, session.errorCode)
                 assertEquals(9_000L, session.updatedAt)

@@ -22,6 +22,7 @@ import com.example.onwin.data.database.AppDatabase
 import com.example.onwin.data.audio.WavWriter
 import com.example.onwin.data.repository.RoomSessionRepository
 import com.example.onwin.data.export.TranscriptExporter
+import com.example.onwin.data.protocol.ProtocolExporter
 import com.example.onwin.data.preferences.WelcomePreferences
 import com.example.onwin.domain.model.ErrorCode
 import com.example.onwin.domain.model.Session
@@ -30,6 +31,7 @@ import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.model.SpeakerName
 import com.example.onwin.domain.processing.ImportSubmission
 import com.example.onwin.domain.processing.ProcessingController
+import com.example.onwin.domain.processing.ProtocolService
 import com.example.onwin.domain.processing.ProcessingState
 import com.example.onwin.domain.repository.TranscriptOnboardingStep
 import com.example.onwin.ui.screens.recording.ActiveRecordingRoute
@@ -84,7 +86,9 @@ class SpeakerRenameTest {
                 repository,
                 IdleController,
                 TranscriptExporter(context),
-                completedTranscriptOnboarding,
+                protocolService = ProtocolService(null, repository, IdleController, Clock.systemUTC()),
+                protocolExporter = ProtocolExporter(context),
+                transcriptOnboarding = completedTranscriptOnboarding,
             )
             try {
                 compose.setContent { ActiveRecordingRoute(onBack = {}, viewModel = viewModel) }
@@ -159,7 +163,9 @@ class SpeakerRenameTest {
                 repository,
                 IdleController,
                 TranscriptExporter(context),
-                preferences,
+                protocolService = ProtocolService(null, repository, IdleController, Clock.systemUTC()),
+                protocolExporter = ProtocolExporter(context),
+                transcriptOnboarding = preferences,
             )
             try {
                 compose.setContent { ActiveRecordingRoute(onBack = {}, viewModel = viewModel) }

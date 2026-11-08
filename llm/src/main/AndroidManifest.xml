@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    Модуль сам ничего не объявляет: контракт TextGenerator уже есть в :speech,
-    а AAR ONNX Runtime GenAI лежит в local-repo с урезанным манифестом.
--->
-<manifest />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!-- Ядро ONNX Runtime подключено здесь. GenAI собран без телеметрии. -->
+        <provider
+            android:name="ai.onnxruntime.TelemetryInitializer"
+            android:authorities="${applicationId}.onnxruntime_telemetry_initializer"
+            tools:node="remove" />
+    </application>
+</manifest>

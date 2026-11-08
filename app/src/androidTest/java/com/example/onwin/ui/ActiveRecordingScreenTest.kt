@@ -1,24 +1,33 @@
 package com.example.onwin.ui
 
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.onwin.R
@@ -28,6 +37,7 @@ import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.model.SpeakerName
 import com.example.onwin.domain.model.TranscriptSegment
+import com.example.onwin.domain.processing.ProtocolUiState
 import com.example.onwin.domain.repository.TranscriptOnboardingStep
 import com.example.onwin.domain.repository.TranscriptOnboardingStep.COMPLETE
 import com.example.onwin.domain.repository.TranscriptOnboardingStep.SPEAKER
@@ -40,6 +50,9 @@ import com.example.onwin.ui.navigation.OnWinNavigationLayout
 import com.example.onwin.ui.screens.recording.ActiveRecordingScreen
 import com.example.onwin.ui.screens.recording.RecordingPlaybackState
 import com.example.onwin.ui.theme.ActiveRecordingTheme
+import com.example.speech.api.ProtocolAction
+import com.example.speech.api.ProtocolNotes
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -345,9 +358,205 @@ class ActiveRecordingScreenTest {
         assertEquals(12f, (export.left - play.right).value, 1f)
         assertEquals(((panel.left + panel.right) / 2).value, ((play.left + play.right) / 2).value, 1f)
         assertEquals(32f, (panel.top - transcript.bottom).value, 1f)
-        assertTrue(transcriptPanel.bottom - transcriptPanel.top > 184.dp)
+        val status = compose.onNodeWithText("Готово").getUnclippedBoundsInRoot()
+        assertTrue(transcriptPanel.top >= status.bottom)
         // Скроллится только лента реплик: у страницы своего скролла больше нет.
         assertEquals(1, compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes().size)
+        val replies = compose.onNodeWithTag("transcript-list")
+        for (index in listOf(0, 5)) {
+            replies.performScrollToIndex(index)
+            compose.onNodeWithText("Реплика $index").performScrollTo().assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun longTitleSharesRowWithDurationAndProtocolControlsKeepTheirHeight() {
+        val title = "Длинное название записи ".repeat(6).trimEnd()
+        val summary = "Обсудили план встречи."
+        val initial = transcriptDetail(listOf(transcriptSegment(0)))
+        val detail = mutableStateOf(initial.copy(session = initial.session.copy(title = title), summary = summary))
+        val generating = mutableStateOf(false)
+        compose.setContent {
+            ActiveRecordingTheme {
+                ActiveRecordingScreen(
+                    detail = detail.value,
+                    loaded = true,
+                    elapsedMs = 4_321_000L,
+                    processing = false,
+                    canStop = false,
+                    canCancel = false,
+                    cancelling = false,
+                    onBack = {},
+                    onStop = {},
+                    onCancel = {},
+                    onRenameSpeaker = {},
+                    onApplySuggestedName = { _, _ -> },
+                    protocolState = ProtocolUiState(available = true, running = generating.value),
+                    onGenerateProtocol = { generating.value = true },
+                    onCancelProtocol = { generating.value = false },
+                )
+            }
+        }
+
+        val titleNode = compose.onNodeWithText(title).assertIsDisplayed()
+        val titleLayouts = mutableListOf<TextLayoutResult>()
+        titleNode.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(titleLayouts) }
+        assertEquals(1, titleLayouts.single().lineCount)
+        assertTrue(titleLayouts.single().isLineEllipsized(0))
+        val titleBounds = titleNode.fetchSemanticsNode().boundsInRoot
+        val durationBounds = compose.onAllNodesWithText("1:12:01").fetchSemanticsNodes()
+            .map { it.boundsInRoot }
+            .single { titleBounds.top < it.bottom && it.top < titleBounds.bottom }
+        assertTrue(titleBounds.right <= durationBounds.left)
+
+        val generate = compose.onNodeWithText("Составить протокол")
+        val summaryHeadingTop = compose.onNodeWithText("Кратко").getUnclippedBoundsInRoot().top
+        val summaryBottom = compose.onNodeWithText(summary).getUnclippedBoundsInRoot().bottom
+        assertEquals(16f, (generate.getUnclippedBoundsInRoot().top - summaryBottom).value, 1f)
+
+        val idleButton = generate.getUnclippedBoundsInRoot()
+        val transcriptTop = compose.onNodeWithTag("transcript-panel").getUnclippedBoundsInRoot().top
+        generate.performClick()
+        generate.assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Модель составляет протокол…", useUnmergedTree = true).assertIsDisplayed()
+        val loadingButton = generate.getUnclippedBoundsInRoot()
+        val cancel = compose.onNodeWithContentDescription("Отменить").assertIsDisplayed()
+        assertEquals(idleButton.top.value, loadingButton.top.value, 1f)
+        assertEquals(idleButton.bottom.value, loadingButton.bottom.value, 1f)
+        assertEquals(4f, (cancel.getUnclippedBoundsInRoot().left - loadingButton.right).value, 1f)
+        assertEquals(
+            transcriptTop.value,
+            compose.onNodeWithTag("transcript-panel").getUnclippedBoundsInRoot().top.value,
+            1f,
+        )
+        cancel.performTouchInput { click() }
+        cancel.assertDoesNotExist()
+
+        compose.runOnIdle { detail.value = detail.value.copy(summary = null) }
+        assertEquals(summaryHeadingTop.value, generate.getUnclippedBoundsInRoot().top.value, 1f)
+
+        compose.runOnIdle {
+            detail.value = detail.value.copy(summary = summary, suggestedNames = listOf(SpeakerName(0, "Анна")))
+        }
+        val suggestionBottom = compose.onNodeWithText("Спикер 1 — Анна").getUnclippedBoundsInRoot().bottom
+        assertEquals(8f, (generate.getUnclippedBoundsInRoot().top - suggestionBottom).value, 1f)
+    }
+
+    @Test
+    fun cancelledRecordingShowsTranscriptOnlyWhenItHasReplies() {
+        val initial = transcriptDetail(emptyList())
+        val detail = mutableStateOf(initial.copy(session = initial.session.copy(status = SessionStatus.CANCELLED)))
+        compose.setContent {
+            ActiveRecordingTheme {
+                ActiveRecordingScreen(
+                    detail = detail.value,
+                    loaded = true,
+                    elapsedMs = 4_000L,
+                    processing = false,
+                    canStop = false,
+                    canCancel = false,
+                    cancelling = false,
+                    onBack = {},
+                    onStop = {},
+                    onCancel = {},
+                    onRenameSpeaker = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("Отменено").assertIsDisplayed()
+        val transcript = compose.onNodeWithTag("transcript-panel")
+        transcript.assertDoesNotExist()
+
+        val reply = transcriptSegment(0)
+        compose.runOnIdle { detail.value = detail.value.copy(segments = listOf(reply)) }
+        transcript.assertIsDisplayed()
+        compose.onNodeWithText(reply.text).assertIsDisplayed()
+    }
+
+    @Test
+    fun speakerCountUsesRussianFormsWithAnEnglishDeviceLocale() {
+        val speakerCount = mutableStateOf(0)
+        compose.setContent {
+            val context = LocalContext.current
+            val englishContext = remember(context) {
+                context.createConfigurationContext(Configuration().apply { setLocale(Locale.US) })
+            }
+            CompositionLocalProvider(LocalContext provides englishContext) {
+                ActiveRecordingTheme {
+                    ActiveRecordingScreen(
+                        detail = transcriptDetail(List(speakerCount.value) { transcriptSegment(it).copy(speaker = it) }),
+                        loaded = true,
+                        elapsedMs = 4_000L,
+                        processing = false,
+                        canStop = false,
+                        canCancel = false,
+                        cancelling = false,
+                        onBack = {},
+                        onStop = {},
+                        onCancel = {},
+                        onRenameSpeaker = {},
+                    )
+                }
+            }
+        }
+
+        for ((count, label) in listOf(
+            0 to "0 спикеров",
+            1 to "1 спикер",
+            2 to "2 спикера",
+            4 to "4 спикера",
+            5 to "5 спикеров",
+            11 to "11 спикеров",
+            12 to "12 спикеров",
+            14 to "14 спикеров",
+            21 to "21 спикер",
+            22 to "22 спикера",
+            25 to "25 спикеров",
+        )) {
+            compose.runOnIdle { speakerCount.value = count }
+            compose.onNodeWithText(label).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun longProtocolScrollsToExportWithoutHidingTranscript() {
+        val reply = transcriptSegment(0)
+        val detail = transcriptDetail(listOf(reply)).copy(
+            summary = "Участники обсудили сроки и договорились о следующих шагах.",
+            protocol = ProtocolNotes(
+                participants = emptyList(),
+                summary = "Итоги встречи",
+                decisions = List(5) { "Решение ${it + 1} по итогам обсуждения расписания" },
+                actions = List(5) { ProtocolAction(task = "Поручение ${it + 1} по подготовке отчёта") },
+            ),
+        )
+        var exported = false
+        compose.setContent {
+            ActiveRecordingTheme {
+                Box(Modifier.height(700.dp)) {
+                    ActiveRecordingScreen(
+                        detail = detail,
+                        loaded = true,
+                        elapsedMs = 4_000L,
+                        processing = false,
+                        canStop = false,
+                        canCancel = false,
+                        cancelling = false,
+                        onBack = {},
+                        onStop = {},
+                        onCancel = {},
+                        onRenameSpeaker = {},
+                        onExportProtocol = { exported = true },
+                    )
+                }
+            }
+        }
+
+        compose.onNodeWithText(reply.text).assertIsDisplayed()
+        compose.onNodeWithText("Сохранить .md").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText(reply.text).assertIsDisplayed()
+        compose.runOnIdle { assertTrue(exported) }
     }
 
     @Test

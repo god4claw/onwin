@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +51,7 @@ import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.processing.RecordingPhase
 import com.example.onwin.ui.components.GlassButton
+import com.example.onwin.ui.components.GradientSwitch
 import com.example.onwin.ui.components.recordingPanelPrimary
 import com.example.onwin.ui.navigation.NavigationPanelContent
 import com.example.onwin.ui.navigation.panelElement
@@ -131,18 +131,20 @@ internal fun RecordingsScreen(
                         modifier = Modifier
                             .onSizeChanged { switchOverlayHeightPx = it.height }
                             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                            .padding(start = 22.dp, end = 22.dp, bottom = 4.dp),
+                            .padding(start = 22.dp, end = 22.dp, bottom = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = liveLabel,
-                            modifier = Modifier
-                                .weight(1f, fill = false)
-                                .padding(end = 8.dp),
-                            color = MaterialTheme.colorScheme.onBackground,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Switch(
+                        if (!listExpanded) {
+                            Text(
+                                text = liveLabel,
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .padding(end = 8.dp),
+                                color = MaterialTheme.colorScheme.onBackground,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        GradientSwitch(
                             checked = liveTranscription,
                             onCheckedChange = onLiveTranscriptionChange,
                             enabled = recording == null && !state.startingRecording && !savingRecording,
@@ -216,7 +218,7 @@ private fun capturePanel(
     onStopRecording: (String) -> Unit,
 ): NavigationPanelContent = NavigationPanelContent(
     horizontalPadding = 26.dp,
-    topPadding = if (expanded) 12.dp else if (compact) 24.dp else 29.dp,
+    topPadding = if (expanded) 16.dp else if (compact) 24.dp else 29.dp,
     bottomPadding = if (compact) 22.dp else 26.dp,
     primaryBottomGap = 19.dp,
     heading = if (expanded) null else panelElement(title) {
@@ -339,6 +341,7 @@ private fun RecordingsScreenPreview() {
         onRecord = {},
         onImport = {},
         onStopRecording = {},
+        liveTranscription = false
     )
 }
 

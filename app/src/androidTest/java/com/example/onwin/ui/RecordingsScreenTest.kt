@@ -31,6 +31,7 @@ import com.example.onwin.ui.navigation.NavigationPanelSlot
 import com.example.onwin.ui.navigation.NavigationPanelTag
 import com.example.onwin.ui.navigation.NavigationPanels
 import com.example.onwin.ui.navigation.OnWinNavigationLayout
+import com.example.onwin.ui.navigation.PanelPrimaryTag
 import com.example.onwin.ui.screens.recordings.RecordingsScreen
 import com.example.onwin.ui.screens.recordings.RecordingsUiState
 import org.junit.Assert.assertEquals
@@ -200,8 +201,10 @@ class RecordingsScreenTest {
         }
 
         val label = "Расшифровка во время записи"
+        val labelText = compose.onNodeWithText(label)
         val mode = compose.onNodeWithContentDescription(label)
         val panel = compose.onNodeWithTag(NavigationPanelTag)
+        labelText.assertIsDisplayed()
         val initialSwitch = mode.getUnclippedBoundsInRoot()
         val initialPanel = panel.getUnclippedBoundsInRoot()
         val gap = initialPanel.top - initialSwitch.bottom
@@ -210,23 +213,20 @@ class RecordingsScreenTest {
 
         compose.onNodeWithText("Все записи").performTouchInput { click() }
         mode.assertIsDisplayed()
+        labelText.assertDoesNotExist()
         val expandedSwitch = mode.getUnclippedBoundsInRoot()
         val expandedPanel = panel.getUnclippedBoundsInRoot()
-        val labelBounds = compose.onNodeWithText(label).getUnclippedBoundsInRoot()
+        val microphone = compose.onNodeWithTag(PanelPrimaryTag).getUnclippedBoundsInRoot()
+        assertEquals(16f, (microphone.top - expandedPanel.top).value, 1f)
         assertTrue(expandedSwitch.top > initialSwitch.top)
         assertEquals(gap.value, (expandedPanel.top - expandedSwitch.bottom).value, 1f)
         assertEquals(initialSwitch.right.value, expandedSwitch.right.value, 1f)
-        assertTrue(labelBounds.right <= expandedSwitch.left)
-        assertEquals(
-            (expandedSwitch.top + expandedSwitch.bottom).value / 2,
-            (labelBounds.top + labelBounds.bottom).value / 2,
-            1f,
-        )
         assertTrue(compose.onNode(hasScrollAction()).getUnclippedBoundsInRoot().bottom > expandedSwitch.top)
         mode.assertIsOn().performTouchInput { click() }
         mode.assertIsOff()
         compose.runOnIdle { assertEquals(null, opened) }
         compose.onNodeWithText("Свернуть записи").performTouchInput { click() }
+        labelText.assertIsDisplayed()
         assertEquals(initialSwitch.top.value, mode.getUnclippedBoundsInRoot().top.value, 1f)
     }
 

@@ -31,6 +31,7 @@
 Результат второго прохода сохраняется в Room (`session_notes`, `speaker_suggestions`),
 протокол — в `session_protocols` (Room v3). На экране записи: блок «Кратко», чипы
 «Спикер N — Имя» и кнопка «Составить протокол» с экспортом `.md`.
+Длинный протокол прокручивается внутри блока. Кнопка «Сохранить .md» находится внизу блока.
 
 ## Модель
 
@@ -76,17 +77,29 @@ pwsh -File llm/scripts/push-model.ps1
 
 ## Рантайм и размер
 
-- `ai.onnxruntime.genai:onnxruntime-genai-android:0.19.0` — AAR из GitHub Releases
-  `microsoft/onnxruntime-genai`, лежит в [`local-repo`](local-repo) (21 МБ);
+- `ai.onnxruntime.genai:onnxruntime-genai-android:0.19.0` — адаптированный AAR из
+  [`local-repo`](local-repo) на базе релиза Microsoft `v0.19.0`;
 - `com.microsoft.onnxruntime:onnxruntime-android:1.31.1` — ядро ORT, которое грузит GenAI.
 
-AAR объявляет `INTERNET`, `ACCESS_NETWORK_STATE` и ContentProvider телеметрии `libmat`.
-Приложение полностью офлайн, поэтому разрешения и провайдер вырезаны в
-[`app/src/main/AndroidManifest.xml`](../app/src/main/AndroidManifest.xml) через `tools:node="remove"`.
-Сборка `:app:processDebugMainManifest` — проверка, что в merged-манифесте не осталось `INTERNET`.
+Нативное ядро `libonnxruntime-genai.so` пересобрано для `arm64-v8a` и `x86_64` из
+тега Microsoft `v0.19.0` (`d01b2441a72d4e3223415b9b08474c6e65fbc028`) с Android NDK
+`28.2.13676358`, `ANDROID_PLATFORM=android-29` и `ORT_HOME` из распакованного AAR ONNX
+Runtime `1.31.1`. Цель CMake `onnxruntime-genai` собрана в режиме Release с `USE_CUDA=OFF`,
+`ENABLE_TELEMETRY=OFF`, `ENABLE_JAVA=OFF`, `ENABLE_PYTHON=OFF` и `ENABLE_TESTS=OFF`.
+Оригинальные Java- и JNI-биндинги сохранены. В AAR убраны
+`libmat.so` с выравниванием ELF-сегментов 4 КБ и декларации её провайдера и разрешений.
+При замене AAR проверьте выравнивание ELF (`llvm-readelf -Wl`) и упаковки APK
+(`zipalign -c -P 16 -v 4`), затем запустите генерацию на устройстве с 16-КБ страницами.
+
+Провайдер отдельного AAR ONNX Runtime исключён через `tools:node="remove"` в
+[`llm/src/main/AndroidManifest.xml`](src/main/AndroidManifest.xml). Сетевые разрешения
+исключены в [`app/src/main/AndroidManifest.xml`](../app/src/main/AndroidManifest.xml).
+Проверяйте итоговый манифест APK после `:app:processDebugMainManifest`.
 
 ABI: `arm64-v8a` и `x86_64`. 32-битные библиотеки исключены: sherpa-onnx и onnxruntime-android
 везут разные `libonnxruntime.so` для x86, и они конфликтуют по имени файла.
+В debug APK включены обе 64-битные ABI, чтобы x86_64-эмулятор запускал ONNX Runtime
+напрямую. Обычный release APK по-прежнему собирается для `arm64-v8a`.
 
 ## Тесты
 

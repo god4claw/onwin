@@ -1,5 +1,6 @@
 package com.example.onwin.ui.screens.recording
 
+import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.core.Animatable
@@ -14,6 +15,7 @@ import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,17 +31,21 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,12 +69,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -120,6 +127,7 @@ import com.example.onwin.ui.theme.recordingCardBackground
 import com.example.onwin.ui.theme.transcriptHighlight
 import com.example.speech.api.ProtocolNotes
 import com.example.speech.api.TranscriptLanguage
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @Composable
@@ -272,42 +280,47 @@ internal fun ActiveRecordingScreen(
                                     detail.protocol != null || protocolAvailable
                                 ) {
                                     Spacer(Modifier.height(12.dp))
-                                    LlmNotes(
-                                        summary = detail.summary,
-                                        suggestions = suggested,
-                                        onApply = onApplySuggestedName,
-                                        protocol = detail.protocol,
-                                        protocolState = protocolState,
-                                        protocolExporting = protocolExporting,
-                                        canGenerate = protocolAvailable,
-                                        onGenerate = onGenerateProtocol,
-                                        onCancel = onCancelProtocol,
-                                        onExport = onExportProtocol,
-                                    )
+                                    BoxWithConstraints {
+                                        LlmNotes(
+                                            summary = detail.summary,
+                                            suggestions = suggested,
+                                            onApply = onApplySuggestedName,
+                                            protocol = detail.protocol,
+                                            protocolState = protocolState,
+                                            protocolExporting = protocolExporting,
+                                            canGenerate = protocolAvailable,
+                                            onGenerate = onGenerateProtocol,
+                                            onCancel = onCancelProtocol,
+                                            onExport = onExportProtocol,
+                                            modifier = Modifier.heightIn(max = maxHeight / 2),
+                                        )
+                                    }
                                 }
                                 Spacer(Modifier.height(14.dp))
                             }
                         }
-                        val maxHeight = if (status == SessionStatus.DONE) Modifier else {
-                            val collapsedHeight = if (compact) 184.dp else 208.dp
-                            Modifier.heightIn(max = lerp(collapsedHeight, viewport.height, progress))
+                        if (status != SessionStatus.CANCELLED || lastSegment != null) {
+                            val maxHeight = if (status == SessionStatus.DONE) Modifier else {
+                                val collapsedHeight = if (compact) 184.dp else 208.dp
+                                Modifier.heightIn(max = lerp(collapsedHeight, viewport.height, progress))
+                            }
+                            RecordingTranscript(
+                                modifier = Modifier.weight(1f, fill = status == SessionStatus.DONE).then(maxHeight),
+                                detail = detail,
+                                expanded = expanded,
+                                expansion = expansion,
+                                onToggleExpanded = if (lastSegment != null) {
+                                    { expandTranscript = !expanded }
+                                } else null,
+                                canSeek = playback.ready,
+                                playing = playback.ready && playback.playing && status == SessionStatus.DONE,
+                                playbackPosition = playbackPosition,
+                                onRenameSpeaker = onRenameSpeaker,
+                                onEditSegment = onEditSegment,
+                                onSeek = onSeekPlayback,
+                                onboardingTarget = target,
+                            )
                         }
-                        RecordingTranscript(
-                            modifier = Modifier.weight(1f, fill = status == SessionStatus.DONE).then(maxHeight),
-                            detail = detail,
-                            expanded = expanded,
-                            expansion = expansion,
-                            onToggleExpanded = if (lastSegment != null) {
-                                { expandTranscript = !expanded }
-                            } else null,
-                            canSeek = playback.ready,
-                            playing = playback.ready && playback.playing && status == SessionStatus.DONE,
-                            playbackPosition = playbackPosition,
-                            onRenameSpeaker = onRenameSpeaker,
-                            onEditSegment = onEditSegment,
-                            onSeek = onSeekPlayback,
-                            onboardingTarget = target,
-                        )
                         detail.session.errorCode?.let { error ->
                             ScreenControls(visible = !expanded, anchor = Alignment.Bottom) {
                                 Text(
@@ -370,7 +383,7 @@ private fun RecordingSummary(detail: SessionDetail, elapsedMs: Long, compact: Bo
             if (session.source == SessionSource.IMPORT) session.status.labelRes else R.string.recording_processing
         else -> session.status.labelRes
     }
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth()
             .heightIn(min = if (completed) {
                 if (compact) 100.dp else 112.dp
@@ -379,42 +392,66 @@ private fun RecordingSummary(detail: SessionDetail, elapsedMs: Long, compact: Bo
             })
             .recordingSurface()
             .padding(horizontal = 22.dp, vertical = if (compact) 12.dp else 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp),
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(session.title, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleLarge)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = session.title,
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             Text(
                 text = formatClock(elapsedMs),
-                modifier = Modifier.padding(top = 3.dp),
+                modifier = Modifier.padding(start = 12.dp),
                 color = RecordingDurationColor,
                 style = MaterialTheme.typography.headlineSmall.copy(fontFamily = GolosText),
             )
         }
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp),
-        ) {
-            Text(
-                text = stringResource(statusText),
-                color = when (session.status) {
-                    SessionStatus.DONE -> RecordingReadyColor
-                    SessionStatus.FAILED -> MaterialTheme.colorScheme.error
-                    SessionStatus.CANCELLED -> MaterialTheme.colorScheme.onSurfaceVariant
-                    else -> RecordingActiveColor
-                },
-                style = if (completed) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
-            )
-            if (completed) {
-                val speakers = remember(detail.segments) {
-                    detail.segments.mapTo(HashSet()) { it.speaker }.size
-                }
+        if (completed) {
+            val speakers = remember(detail.segments) {
+                detail.segments.mapTo(HashSet()) { it.speaker }.size
+            }
+            val context = LocalContext.current
+            val speakerCount = remember(context, speakers) {
+                // Русские подписи используют русские правила и на телефоне с другим языком.
+                val russian = Configuration().apply { setLocale(Locale.forLanguageTag("ru")) }
+                context.createConfigurationContext(russian).resources
+                    .getQuantityString(R.plurals.recording_speaker_count, speakers, speakers)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
                 Text(
-                    text = pluralStringResource(R.plurals.recording_speaker_count, speakers, speakers),
+                    text = stringResource(statusText),
+                    color = RecordingReadyColor,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    text = speakerCount,
                     color = RecordingTranscriptText,
                     style = MaterialTheme.typography.labelLarge.copy(fontSize = 17.sp, lineHeight = 20.4.sp),
                 )
             }
+        } else {
+            Text(
+                text = stringResource(statusText),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+                color = when (session.status) {
+                    SessionStatus.FAILED -> MaterialTheme.colorScheme.error
+                    SessionStatus.CANCELLED -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> RecordingActiveColor
+                },
+                style = MaterialTheme.typography.titleMedium,
+            )
         }
     }
 }
@@ -734,9 +771,14 @@ private fun LlmNotes(
     onGenerate: (() -> Unit)?,
     onCancel: (() -> Unit)?,
     onExport: (() -> Unit)?,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth().recordingSurface().padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .recordingSurface()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (summary != null) {
@@ -844,26 +886,48 @@ private fun LlmNotes(
                     text = stringResource(R.string.llm_protocol_export),
                     onClick = onExport,
                     enabled = !protocolExporting,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
             }
         } else if (canGenerate && onGenerate != null) {
-            if (protocolState.running) {
-                Text(
-                    text = stringResource(R.string.llm_protocol_running),
-                    color = RecordingDurationColor,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                if (onCancel != null) {
-                    GlassButton(
-                        text = stringResource(R.string.llm_protocol_cancel),
-                        onClick = onCancel,
+            val followsSummary = summary != null && (suggestions.isEmpty() || onApply == null)
+            Row(
+                modifier = Modifier.padding(top = if (followsSummary) 8.dp else 0.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                GlassButton(
+                    onClick = onGenerate,
+                    modifier = Modifier.weight(1f, fill = false),
+                    contentPadding = PaddingValues(horizontal = 19.dp, vertical = 8.dp),
+                    enabled = !protocolState.running,
+                ) {
+                    if (protocolState.running) {
+                        val label = stringResource(R.string.llm_protocol_running)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp).semantics { contentDescription = label },
+                            color = LocalContentColor.current,
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(9.dp))
+                    }
+                    Text(
+                        text = stringResource(R.string.llm_protocol_generate),
+                        style = MaterialTheme.typography.labelMedium,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-            } else {
-                GlassButton(
-                    text = stringResource(R.string.llm_protocol_generate),
-                    onClick = onGenerate,
-                )
+                if (protocolState.running && onCancel != null) {
+                    IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_recording_cancel),
+                            contentDescription = stringResource(R.string.llm_protocol_cancel),
+                            tint = RecordingCancelColor,
+                        )
+                    }
+                }
             }
             protocolState.error?.let { error ->
                 Text(
