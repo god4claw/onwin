@@ -59,7 +59,7 @@
     <string name="stage_loading_models">Загрузка моделей…</string>
     <string name="stage_diarization">Определение говорящих</string>
     <string name="stage_recognition">Распознавание речи</string>
-    <string name="stage_correcting">Коррекция текста</string>
+    <string name="stage_correcting">Анализ диалога</string>
     <string name="recordings_live_transcription">Расшифровка во время записи</string>
     <string name="stage_step">Шаг %1$d из %2$d · %3$s</string>
     <string name="stage_step_percent">Шаг %1$d из %2$d · %3$s · %4$d%%</string>
@@ -129,6 +129,9 @@
     <string name="llm_summary_title">Кратко</string>
     <string name="llm_names_title">Имена от модели</string>
     <string name="llm_suggested_name">Спикер %1$d — %2$s</string>
+    <string name="llm_correction_action">Провести коррекцию</string>
+    <string name="llm_correction_running">Модель исправляет реплики…</string>
+    <string name="llm_correction_failed">Не удалось сохранить коррекцию. Попробуйте ещё раз.</string>
     <string name="llm_protocol_title">Протокол</string>
     <string name="llm_protocol_generate">Составить протокол</string>
     <string name="llm_protocol_running">Модель составляет протокол…</string>

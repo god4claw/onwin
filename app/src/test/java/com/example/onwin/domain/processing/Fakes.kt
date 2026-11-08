@@ -104,8 +104,13 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
         speakerNames.value += id to updated
     }
 
-    override suspend fun updateSegmentText(id: String, index: Int, text: String): Boolean =
-        error("Unexpected transcript edit in processing test")
+    override suspend fun updateSegmentText(id: String, index: Int, text: String): Boolean {
+        if (get(id)?.status != SessionStatus.DONE) return false
+        val list = segments[id] ?: return false
+        val segment = list.getOrNull(index) ?: return false
+        list[index] = segment.copy(text = text)
+        return true
+    }
 
     override suspend fun updateStatus(id: String, status: SessionStatus, errorCode: ErrorCode?, errorMessage: String?) {
         update(id) { it.copy(status = status, errorCode = errorCode, errorMessage = errorMessage) }
@@ -123,6 +128,14 @@ class FakeSessionRepository(private val recordingsDir: File) : SessionRepository
 
     override suspend fun replaceSegments(id: String, segments: List<Segment>) {
         this.segments[id] = segments.toMutableList()
+    }
+
+    override suspend fun saveCorrection(id: String, original: List<TranscriptSegment>, corrected: List<Segment>): Boolean {
+        if (get(id)?.status != SessionStatus.DONE ||
+            segments(id) != original.map { Segment(it.speaker, it.startMs, it.endMs, it.text) }
+        ) return false
+        replaceSegments(id, corrected)
+        return true
     }
 
     override suspend fun clearSegments(id: String) {
@@ -359,8 +372,7 @@ class FakeTextCorrector(private val events: MutableList<String> = mutableListOf(
 
 /**
  * [TranscriptAnalyzer] по сценарию [behavior]; по умолчанию возвращает имя и
- * резюме. Запоминает, какие реплики получил: тест проверяет, что анализ идёт
- * уже по исправленному тексту.
+ * резюме. Запоминает реплики, полученные для анализа.
  */
 class FakeTranscriptAnalyzer : TranscriptAnalyzer {
 

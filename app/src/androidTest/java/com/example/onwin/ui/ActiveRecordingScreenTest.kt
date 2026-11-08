@@ -37,6 +37,7 @@ import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
 import com.example.onwin.domain.model.SpeakerName
 import com.example.onwin.domain.model.TranscriptSegment
+import com.example.onwin.domain.processing.CorrectionState
 import com.example.onwin.domain.processing.ProtocolUiState
 import com.example.onwin.domain.repository.TranscriptOnboardingStep
 import com.example.onwin.domain.repository.TranscriptOnboardingStep.COMPLETE
@@ -367,6 +368,50 @@ class ActiveRecordingScreenTest {
             replies.performScrollToIndex(index)
             compose.onNodeWithText("Реплика $index").performScrollTo().assertIsDisplayed()
         }
+    }
+
+    @Test
+    fun correctionAppearsBesideProtocolWhenReady_andShowsLoadingInsideButton() {
+        val completed = transcriptDetail(listOf(transcriptSegment(0)))
+        val status = mutableStateOf(SessionStatus.TRANSCRIBING)
+        val correcting = mutableStateOf(false)
+        compose.setContent {
+            ActiveRecordingTheme {
+                ActiveRecordingScreen(
+                    detail = completed.copy(session = completed.session.copy(status = status.value)),
+                    loaded = true,
+                    elapsedMs = 4_000L,
+                    processing = status.value == SessionStatus.TRANSCRIBING,
+                    canStop = false,
+                    canCancel = false,
+                    cancelling = false,
+                    onBack = {},
+                    onStop = {},
+                    onCancel = {},
+                    onRenameSpeaker = {},
+                    correctionState = CorrectionState(
+                        available = true,
+                        sessionId = completed.session.id,
+                        running = correcting.value,
+                    ),
+                    onCorrectTranscript = { correcting.value = true },
+                    protocolState = ProtocolUiState(available = true),
+                    onGenerateProtocol = {},
+                )
+            }
+        }
+
+        val correction = compose.onNodeWithText("Провести коррекцию")
+        correction.assertDoesNotExist()
+        compose.runOnIdle { status.value = SessionStatus.DONE }
+        compose.onNodeWithText("Составить протокол").assertIsDisplayed()
+        correction.assertIsDisplayed().performClick()
+        correction.assertIsNotEnabled()
+        val loader = compose.onNodeWithContentDescription("Модель исправляет реплики…", useUnmergedTree = true)
+        loader.assertIsDisplayed()
+        compose.onNodeWithText(completed.segments.single().text).assertIsDisplayed()
+        compose.runOnIdle { correcting.value = false }
+        loader.assertDoesNotExist()
     }
 
     @Test

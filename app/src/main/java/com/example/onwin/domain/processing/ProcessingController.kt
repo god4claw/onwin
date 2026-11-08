@@ -21,6 +21,16 @@ interface ProcessingController {
     /** Current processing, capture, and queued work. */
     val state: StateFlow<ProcessingState>
 
+    /** Исправляет реплики готовой записи по действию пользователя. */
+    fun correctTranscript(sessionId: String) = Unit
+
+    /** Даёт протоколу доступ к модели, пока очередь обработки свободна. */
+    suspend fun withIdleModels(action: suspend () -> Unit): Boolean {
+        if (state.value.busy) return false
+        action()
+        return true
+    }
+
     /**
      * Создаёт сессию для [source] и ставит её в очередь. Foreground-сервис запускается тут же, синхронно.
      * Вызывать только из действия пользователя, пока приложение на экране: из фона Android 12+
@@ -66,6 +76,14 @@ data class ProcessingState(
     val queuedCount: Int = 0,
     val recording: RecordingState? = null,
     val busy: Boolean = false,
+    val correction: CorrectionState = CorrectionState(),
+)
+
+data class CorrectionState(
+    val available: Boolean = false,
+    val sessionId: String? = null,
+    val running: Boolean = false,
+    val failed: Boolean = false,
 )
 
 /**
@@ -97,7 +115,7 @@ enum class ProcessingStage {
     /** Распознавание речи. */
     RECOGNITION,
 
-    /** Постобработка текста локальной LLM: правка ослышек, отдельно от ASR. */
+    /** Автоматический анализ готового диалога локальной LLM. */
     CORRECTING,
 }
 

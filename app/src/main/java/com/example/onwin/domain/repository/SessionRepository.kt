@@ -5,6 +5,7 @@ import com.example.onwin.domain.model.Session
 import com.example.onwin.domain.model.SessionDetail
 import com.example.onwin.domain.model.SessionListItem
 import com.example.onwin.domain.model.SessionStatus
+import com.example.onwin.domain.model.TranscriptSegment
 import com.example.speech.api.ProtocolNotes
 import com.example.speech.api.Segment
 import kotlinx.coroutines.flow.Flow
@@ -56,6 +57,9 @@ interface SessionRepository {
 
     /** Заменяет все сегменты сессии одной транзакцией; номера — по порядку [segments]. */
     suspend fun replaceSegments(id: String, segments: List<Segment>)
+
+    /** Сохраняет правку, если запись ещё готова и её реплики не менялись с начала коррекции. */
+    suspend fun saveCorrection(id: String, original: List<TranscriptSegment>, corrected: List<Segment>): Boolean
 
     /** Удаляет все сегменты сессии. */
     suspend fun clearSegments(id: String)

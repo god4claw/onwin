@@ -42,7 +42,7 @@ class ProtocolService(
             _state.update { it.copy(error = "Локальная LLM не установлена на устройстве.") }
             return
         }
-        if (job?.isActive == true) return
+        if (job?.isCompleted == false) return
         if (controller.state.value.busy) {
             _state.update {
                 it.copy(sessionId = sessionId, error = "Дождитесь окончания обработки записи.")
@@ -57,30 +57,38 @@ class ProtocolService(
                 error = null,
             )
             try {
-                val detail = repository.observeSession(sessionId).first()
-                if (detail == null || detail.session.status != SessionStatus.DONE) {
-                    _state.update { it.copy(error = "Расшифровка ещё не готова.") }
-                    return@launch
+                val started = controller.withIdleModels {
+                    val detail = repository.observeSession(sessionId).first()
+                    if (detail == null || detail.session.status != SessionStatus.DONE) {
+                        _state.update { it.copy(error = "Расшифровка ещё не готова.") }
+                        return@withIdleModels
+                    }
+                    try {
+                        analyzer.load()
+                        val protocol = analyzer.analyzeProtocol(
+                            segments = detail.segments.map {
+                                Segment(it.speaker, it.startMs, it.endMs, it.text)
+                            },
+                            speakerNames = detail.speakerNames.associate { it.speaker to it.name },
+                        )
+                        if (protocol == null) {
+                            _state.update { it.copy(error = "Не удалось составить протокол: модель вернула пустой ответ.") }
+                        } else {
+                            repository.saveProtocol(sessionId, protocol)
+                            _state.update { it.copy(error = null, generatedAtMs = clock.millis()) }
+                        }
+                    } finally {
+                        analyzer.release()
+                    }
                 }
-                analyzer.load()
-                val protocol = analyzer.analyzeProtocol(
-                    segments = detail.segments.map {
-                        Segment(it.speaker, it.startMs, it.endMs, it.text)
-                    },
-                    speakerNames = detail.speakerNames.associate { it.speaker to it.name },
-                )
-                if (protocol == null) {
-                    _state.update { it.copy(error = "Не удалось составить протокол: модель вернула пустой ответ.") }
-                } else {
-                    repository.saveProtocol(sessionId, protocol)
-                    _state.update { it.copy(error = null, generatedAtMs = clock.millis()) }
+                if (!started) {
+                    _state.update { it.copy(error = "Дождитесь окончания обработки записи.") }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.message ?: "Не удалось составить протокол.") }
             } finally {
-                analyzer.release()
                 _state.update { it.copy(running = false) }
             }
         }
@@ -89,8 +97,6 @@ class ProtocolService(
     /** Отменяет текущую генерацию; модель освободится в `finally` корутины. */
     fun cancel() {
         job?.cancel()
-        job = null
-        _state.update { it.copy(running = false) }
     }
 }
 

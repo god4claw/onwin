@@ -146,6 +146,8 @@ internal fun ActiveRecordingRoute(
             onRenameSpeaker = { editingSpeaker = it },
             onEditSegment = { editingSegment = it },
             onApplySuggestedName = viewModel::applySuggestedName,
+            correctionState = state.correction,
+            onCorrectTranscript = viewModel::correctTranscript,
             protocolState = state.protocol,
             protocolExporting = pickingProtocol || protocolExporting,
             onGenerateProtocol = viewModel::generateProtocol,

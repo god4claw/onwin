@@ -94,6 +94,7 @@ import com.example.onwin.domain.model.SpeakerName
 import com.example.onwin.domain.model.SessionDetail
 import com.example.onwin.domain.model.SessionSource
 import com.example.onwin.domain.model.SessionStatus
+import com.example.onwin.domain.processing.CorrectionState
 import com.example.onwin.domain.processing.ProtocolUiState
 import com.example.onwin.domain.repository.TranscriptOnboardingStep
 import com.example.onwin.ui.components.GlassButton
@@ -127,6 +128,7 @@ import com.example.onwin.ui.theme.recordingCardBackground
 import com.example.onwin.ui.theme.transcriptHighlight
 import com.example.speech.api.ProtocolNotes
 import com.example.speech.api.TranscriptLanguage
+import com.example.speech.api.detectTranscriptLanguage
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -154,6 +156,8 @@ internal fun ActiveRecordingScreen(
     onExport: (() -> Unit)? = null,
     onApplySuggestedName: ((Int, String) -> Unit)? = null,
     protocolState: ProtocolUiState = ProtocolUiState(),
+    correctionState: CorrectionState = CorrectionState(),
+    onCorrectTranscript: (() -> Unit)? = null,
     protocolExporting: Boolean = false,
     onGenerateProtocol: (() -> Unit)? = null,
     onCancelProtocol: (() -> Unit)? = null,
@@ -274,10 +278,17 @@ internal fun ActiveRecordingScreen(
                                 val suggested = detail.suggestedNames.filterNot { suggestion ->
                                     detail.speakerNames.any { it.speaker == suggestion.speaker }
                                 }
-                                val protocolAvailable = detail.session.status == SessionStatus.DONE &&
+                                val ready = detail.session.status == SessionStatus.DONE
+                                val protocolAvailable = ready &&
                                     protocolState.available && onGenerateProtocol != null
+                                val canCorrect = ready && correctionState.available && onCorrectTranscript != null &&
+                                    detail.segments.isNotEmpty() && remember(detail.segments) {
+                                        detectTranscriptLanguage(detail.segments.joinToString(" ") { it.text }) !=
+                                            TranscriptLanguage.EN
+                                    }
+                                val correctionForSession = correctionState.sessionId == detail.session.id
                                 if (detail.summary != null || suggested.isNotEmpty() ||
-                                    detail.protocol != null || protocolAvailable
+                                    detail.protocol != null || protocolAvailable || canCorrect
                                 ) {
                                     Spacer(Modifier.height(12.dp))
                                     BoxWithConstraints {
@@ -285,6 +296,10 @@ internal fun ActiveRecordingScreen(
                                             summary = detail.summary,
                                             suggestions = suggested,
                                             onApply = onApplySuggestedName,
+                                            correctionRunning = correctionForSession && correctionState.running,
+                                            correctionFailed = correctionForSession && correctionState.failed,
+                                            correctionEnabled = !correctionState.running,
+                                            onCorrect = onCorrectTranscript.takeIf { canCorrect },
                                             protocol = detail.protocol,
                                             protocolState = protocolState,
                                             protocolExporting = protocolExporting,
@@ -764,6 +779,10 @@ private fun LlmNotes(
     summary: String?,
     suggestions: List<SpeakerName>,
     onApply: ((Int, String) -> Unit)?,
+    correctionRunning: Boolean,
+    correctionFailed: Boolean,
+    correctionEnabled: Boolean,
+    onCorrect: (() -> Unit)?,
     protocol: ProtocolNotes?,
     protocolState: ProtocolUiState,
     protocolExporting: Boolean,
@@ -820,6 +839,31 @@ private fun LlmNotes(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+            }
+        }
+
+        if (onCorrect != null) {
+            GlassButton(
+                text = stringResource(R.string.llm_correction_action),
+                onClick = onCorrect,
+                enabled = correctionEnabled,
+                leadingIcon = if (correctionRunning) {
+                    {
+                        val label = stringResource(R.string.llm_correction_running)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp).semantics { contentDescription = label },
+                            color = LocalContentColor.current,
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                } else null,
+            )
+            if (correctionFailed) {
+                Text(
+                    text = stringResource(R.string.llm_correction_failed),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
 
@@ -890,7 +934,7 @@ private fun LlmNotes(
                 )
             }
         } else if (canGenerate && onGenerate != null) {
-            val followsSummary = summary != null && (suggestions.isEmpty() || onApply == null)
+            val followsSummary = onCorrect == null && summary != null && (suggestions.isEmpty() || onApply == null)
             Row(
                 modifier = Modifier.padding(top = if (followsSummary) 8.dp else 0.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -900,7 +944,7 @@ private fun LlmNotes(
                     onClick = onGenerate,
                     modifier = Modifier.weight(1f, fill = false),
                     contentPadding = PaddingValues(horizontal = 19.dp, vertical = 8.dp),
-                    enabled = !protocolState.running,
+                    enabled = !protocolState.running && correctionEnabled,
                 ) {
                     if (protocolState.running) {
                         val label = stringResource(R.string.llm_protocol_running)

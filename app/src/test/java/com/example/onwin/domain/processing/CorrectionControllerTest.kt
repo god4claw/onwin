@@ -2,21 +2,20 @@ package com.example.onwin.domain.processing
 
 import com.example.speech.api.TextCorrector
 import com.example.speech.api.TranscriptAnalyzer
-import com.example.onwin.domain.model.SessionStatus.CANCELLED
 import com.example.onwin.domain.model.SessionStatus.CONVERTING
-import com.example.onwin.domain.model.SessionStatus.CORRECTING
 import com.example.onwin.domain.model.SessionStatus.DONE
 import com.example.onwin.domain.model.SessionStatus.QUEUED
 import com.example.onwin.domain.model.SessionStatus.TRANSCRIBING
 import com.example.speech.api.SpeechConfig
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -29,8 +28,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 
 /**
- * LLM-коррекция в очереди обработки: порядок с падением ASR, отказ модели,
- * отмена и общая загрузка модели на пачку.
+ * Автоматический анализ диалога и ручная коррекция готовых реплик.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class CorrectionControllerTest {
@@ -59,7 +57,7 @@ class CorrectionControllerTest {
     }
 
     @Test
-    fun correctionRewritesFinalText_andRunsAfterAsrRelease() = runTest {
+    fun correctionRequiresUserAction_andRunsAfterAsrRelease() = runTest {
         val corrector = FakeTextCorrector(events).apply {
             behavior = { text -> text.replace("Итог", "Итог (исправлено)") }
         }
@@ -69,7 +67,17 @@ class CorrectionControllerTest {
         advanceUntilIdle()
 
         assertEquals(DONE, repository.session(id).status)
-        assertEquals(listOf(QUEUED, CONVERTING, TRANSCRIBING, CORRECTING, DONE), repository.history(id))
+        assertEquals(ScriptedTranscriber.FINAL, repository.segments(id))
+        assertEquals(0, corrector.loads)
+
+        controller.correctTranscript(id)
+        assertTrue(controller.state.value.correction.running)
+        controller.correctTranscript(id)
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.correction.running)
+        assertFalse(controller.state.value.correction.failed)
+        assertEquals(listOf(QUEUED, CONVERTING, TRANSCRIBING, DONE), repository.history(id))
         assertEquals(
             ScriptedTranscriber.FINAL.map { it.copy(text = it.text.replace("Итог", "Итог (исправлено)")) },
             repository.segments(id),
@@ -93,11 +101,13 @@ class CorrectionControllerTest {
 
         val id = controller.enqueueImport(SOURCE)
         advanceUntilIdle()
+        controller.correctTranscript(id)
+        advanceUntilIdle()
 
         assertEquals(DONE, repository.session(id).status)
         assertEquals(ScriptedTranscriber.FINAL, repository.segments(id))
-        assertEquals(listOf(QUEUED, CONVERTING, TRANSCRIBING, CORRECTING, DONE), repository.history(id))
-        // Модель загрузилась, но ответ упал: текст остался исходным, пачка всё равно выгрузила LLM.
+        assertTrue(controller.state.value.correction.failed)
+        assertFalse(controller.state.value.correction.running)
         assertEquals(1, corrector.loads)
         assertEquals(1, corrector.releases)
     }
@@ -130,21 +140,36 @@ class CorrectionControllerTest {
     }
 
     @Test
-    fun analysis_runsOnCorrectedText() = runTest {
+    fun analysisStartsAutomatically_andCorrectionWaitsForModel() = runTest {
         val corrector = FakeTextCorrector().apply {
             behavior = { text -> text.replace("Итог", "Итог (исправлено)") }
         }
-        val analyzer = FakeTranscriptAnalyzer().apply { behavior = { null } }
+        val finishAnalysis = CompletableDeferred<Unit>()
+        val analyzer = FakeTranscriptAnalyzer().apply {
+            behavior = {
+                finishAnalysis.await()
+                null
+            }
+        }
         val controller = createController(corrector, analyzer)
 
         val id = controller.enqueueImport(SOURCE)
         advanceUntilIdle()
 
         assertEquals(DONE, repository.session(id).status)
-        assertEquals(
-            ScriptedTranscriber.FINAL.map { it.copy(text = it.text.replace("Итог", "Итог (исправлено)")) },
-            analyzer.lastSegments,
-        )
+        assertEquals(ScriptedTranscriber.FINAL, analyzer.lastSegments)
+        controller.correctTranscript(id)
+        advanceUntilIdle()
+        assertTrue(controller.state.value.correction.running)
+        assertEquals(0, corrector.loads)
+
+        finishAnalysis.complete(Unit)
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.correction.running)
+        assertEquals(1, corrector.loads)
+        assertEquals(1, analyzer.loads)
+        assertEquals(ScriptedTranscriber.FINAL, analyzer.lastSegments)
         assertNull(repository.summary(id))
     }
 
@@ -163,27 +188,35 @@ class CorrectionControllerTest {
     }
 
     @Test
-    fun cancelDuringCorrection_discardsTextAndWav() = runTest {
-        val corrector = FakeTextCorrector(events).apply { behavior = { awaitCancellation() } }
+    fun editDuringCorrection_preservesUserText() = runTest {
+        val finishCorrection = CompletableDeferred<Unit>()
+        val corrector = FakeTextCorrector(events).apply {
+            behavior = { text ->
+                finishCorrection.await()
+                "$text (исправлено)"
+            }
+        }
         val controller = createController(corrector)
 
         val id = controller.enqueueImport(SOURCE)
         advanceUntilIdle()
-        assertEquals(CORRECTING, repository.session(id).status)
-
-        controller.cancel(id)
+        controller.correctTranscript(id)
         advanceUntilIdle()
 
-        assertEquals(listOf(QUEUED, CONVERTING, TRANSCRIBING, CORRECTING, CANCELLED), repository.history(id))
-        assertTrue(repository.segments(id).isEmpty())
-        assertNull(repository.session(id).wavFileName)
+        assertTrue(repository.updateSegmentText(id, 0, "Правка пользователя"))
+        finishCorrection.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(DONE, repository.session(id).status)
+        assertEquals("Правка пользователя", repository.segments(id).first().text)
+        assertTrue(controller.state.value.correction.failed)
         assertEquals(1, corrector.releases)
     }
 
     @Test
-    fun twoJobs_loadCorrectorOnceAndReleaseAfterQueueDrains() = runTest {
-        val corrector = FakeTextCorrector(events)
-        val controller = createController(corrector)
+    fun twoJobs_loadAnalyzerOnceAndReleaseAfterQueueDrains() = runTest {
+        val analyzer = FakeTranscriptAnalyzer()
+        val controller = createController(analyzer = analyzer)
 
         val first = controller.enqueueImport("content://test/first.mp3")
         val second = controller.enqueueImport("content://test/second.mp3")
@@ -191,9 +224,8 @@ class CorrectionControllerTest {
 
         assertEquals(DONE, repository.session(first).status)
         assertEquals(DONE, repository.session(second).status)
-        assertEquals(1, corrector.loads)
-        assertEquals(1, corrector.releases)
-        // Модель распознавания выгружается перед каждой коррекцией и грузится заново.
+        assertEquals(1, analyzer.loads)
+        assertEquals(1, analyzer.releases)
         assertEquals(2, transcriber.loads)
         assertEquals(2, transcriber.releases)
     }

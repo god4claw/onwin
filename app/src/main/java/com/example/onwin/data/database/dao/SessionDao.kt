@@ -77,6 +77,20 @@ abstract class SessionDao {
         insertSegments(segments)
     }
 
+    @Query("SELECT * FROM segments WHERE sessionId = :sessionId ORDER BY `index`")
+    protected abstract suspend fun getSegments(sessionId: String): List<SegmentEntity>
+
+    @Transaction
+    open suspend fun saveCorrection(
+        sessionId: String,
+        original: List<SegmentEntity>,
+        corrected: List<SegmentEntity>,
+    ): Boolean {
+        if (getSession(sessionId)?.status != SessionStatus.DONE || getSegments(sessionId) != original) return false
+        replaceSegments(sessionId, corrected)
+        return true
+    }
+
     @Insert
     protected abstract suspend fun insertSegments(segments: List<SegmentEntity>)
 

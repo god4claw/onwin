@@ -97,6 +97,13 @@ class RoomSessionRepository(
     override suspend fun replaceSegments(id: String, segments: List<Segment>) =
         dao.replaceSegments(id, segments.mapIndexed { index, segment -> segment.toEntity(id, index) })
 
+    override suspend fun saveCorrection(id: String, original: List<TranscriptSegment>, corrected: List<Segment>) =
+        dao.saveCorrection(
+            id,
+            original.map { Segment(it.speaker, it.startMs, it.endMs, it.text).toEntity(id, it.index) },
+            corrected.zip(original) { segment, previous -> segment.toEntity(id, previous.index) },
+        )
+
     override suspend fun clearSegments(id: String) = dao.clearSegments(id)
 
     override suspend fun saveAnalysis(id: String, summary: String, speakerNames: Map<Int, String>) =

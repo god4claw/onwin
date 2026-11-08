@@ -12,6 +12,7 @@ import com.example.onwin.data.protocol.ProtocolExporter
 import com.example.onwin.data.protocol.ProtocolMarkdown
 import com.example.onwin.domain.model.SessionDetail
 import com.example.onwin.domain.model.SessionStatus
+import com.example.onwin.domain.processing.CorrectionState
 import com.example.onwin.domain.processing.ProcessingController
 import com.example.onwin.domain.processing.ProtocolService
 import com.example.onwin.domain.processing.ProtocolUiState
@@ -71,6 +72,7 @@ class RecordingViewModel @Inject constructor(
                 detail = detail,
                 recording = processing.recording?.takeIf { it.sessionId == sessionId },
                 protocol = protocol,
+                correction = processing.correction,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), RecordingUiState())
 
@@ -118,6 +120,8 @@ class RecordingViewModel @Inject constructor(
 
     /** Запускает опциональный протокол; повторный вызов во время работы игнорируется. */
     fun generateProtocol() = protocolService.generate(sessionId)
+
+    fun correctTranscript() = controller.correctTranscript(sessionId)
 
     /** Отменяет генерацию протокола. */
     fun cancelProtocol() = protocolService.cancel()
@@ -218,4 +222,5 @@ data class RecordingUiState(
     val detail: SessionDetail? = null,
     val recording: RecordingState? = null,
     val protocol: ProtocolUiState = ProtocolUiState(),
+    val correction: CorrectionState = CorrectionState(),
 )
