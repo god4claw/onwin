@@ -11,12 +11,12 @@ local.properties
 .kotlin/
 /.venv*/
 
-# LLM-модель (~0,9 ГБ) скачивается llm/scripts/fetch-model.ps1 и в git не входит.
+# LLM-РјРѕРґРµР»СЊ (~0,9 Р“Р‘) СЃРєР°С‡РёРІР°РµС‚СЃСЏ llm/scripts/fetch-model.ps1 Рё РІ git РЅРµ РІС…РѕРґРёС‚.
 llm/models/
-/llm-model-v1.zip
+/model-weights-v1.zip
 /llm-model-v1.zip
 
-# Артефакты сборки модуля :llm.
+# РђСЂС‚РµС„Р°РєС‚С‹ СЃР±РѕСЂРєРё РјРѕРґСѓР»СЏ :llm.
 llm/build/
 /baselineprofile/build/
 /releases/

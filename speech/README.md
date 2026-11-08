@@ -1,6 +1,6 @@
 # `:speech` — офлайн-распознавание и диаризация речи
 
-ML-модуль приложения `private-onwin`: русская речь → текст с таймкодами и метками говорящих. Считается на устройстве, сеть в рантайме не нужна. Веса лежат в APK и читаются через `AssetManager`.
+ML-модуль приложения `onwin`: русская речь → текст с таймкодами и метками говорящих. Считается на устройстве, сеть в рантайме не нужна. Веса лежат в APK и читаются через `AssetManager`.
 
 - **Файл (рекомендуется): `SherpaVadTranscriber`** — готовый WAV через пайплайн streaming без пауз: АРУ → VAD → ASR по репликам → спикеры по всей записи. На наших замерах точнее и вдвое быстрее batch и не падает на монологе — [`../docs/benches/bench-vad-transcriber.md`](../docs/benches/bench-vad-transcriber.md).
 - **Batch:** готовый WAV → диаризация pyannote → сегменты с текстом (`SherpaTranscriber`).
@@ -269,7 +269,7 @@ SpeechConfig(
 
 ## Модели
 
-Двенадцать файлов, ~406 МиБ (425,3 МБ) в APK. В git не хранятся.
+Двенадцать файлов, ~406 МиБ (425,3 МБ) в APK. В git не хранятся; архив — в релизе [`model-weights`](https://github.com/god4claw/onwin/releases/tag/model-weights).
 
 | Файл в `speech/src/main/assets/` | Размер, байт | Назначение |
 |---|---:|---|
@@ -296,21 +296,21 @@ SpeechConfig(
 > `Invoke-WebRequest`, ни `curl` без токена его не скачают — не подбирайте URL.
 >
 > 1. Откройте под своей учётной записью:
->    `https://github.com/god4claw/private-onwin/releases/tag/speech-models-v1`
-> 2. Assets → `speech-models-v1.zip` → скачайте в корень репозитория.
+>    `https://github.com/god4claw/onwin/releases/tag/model-weights`
+> 2. Assets → `model-weights-v1.zip` → скачайте в корень репозитория.
 > 3. Распакуйте (внутри уже есть `models/`, `asr/`, `vad/`):
 
 ```powershell
-Expand-Archive -Path "speech-models-v1.zip" -DestinationPath "speech/src/main/assets" -Force
+Expand-Archive -Path "model-weights-v1.zip" -DestinationPath "speech/src/main/assets" -Force
 .\gradlew.bat :speech:verifyBundledModels
 ```
 
 ```bash
-unzip -o speech-models-v1.zip -d speech/src/main/assets
+unzip -o model-weights-v1.zip -d speech/src/main/assets
 ./gradlew :speech:verifyBundledModels
 ```
 
-4. ERes2Net (speaker embedding по умолчанию) в архив `speech-models-v1` не входит —
+4. Если ERes2Net (speaker embedding по умолчанию) не входит в архив —
    скачайте её отдельно, ссылка публичная (релиз sherpa-onnx):
 
 ```powershell
@@ -389,7 +389,7 @@ SHA-256 архива — `00020e21641414106a335ab4e5d2bfe18d91cc8a383d645a718344
 
 `load()` проверяет весь набор в обоих режимах: batch не использует VAD, streaming — segmentation, но оба файла всё равно должны лежать в assets.
 
-Веса добавят к APK примерно 350 МБ (они не сжимаются). Для Google Play это больше лимита базового модуля: потребуется install-time asset pack или другая схема поставки весов. Сейчас она не реализована — это стоит учитывать при планировании релиза.
+Веса добавят к APK примерно 425 МБ (они не сжимаются). Для Google Play это больше лимита базового модуля: потребуется install-time asset pack или другая схема поставки весов. Сейчас она не реализована — это стоит учитывать при планировании релиза.
 
 ## Коррекция текста
 
@@ -450,7 +450,7 @@ speech/src/main/java/com/example/speech/
 
 ## Производительность
 
-Ориентир по бенчмарку на эмуляторе (x86_64, 6 ядер, Android 16 / API 36, 4 потока, аудио 19,75 с, 2 говорящих) — [`bench-results/`](../bench-results/). RTF — отношение времени обработки к длительности аудио, меньше — лучше.
+Ориентир по бенчмарку на эмуляторе (x86_64, 6 ядер, Android 16 / API 36, 4 потока, аудио 19,75 с, 2 говорящих) — `bench-results/`. RTF — отношение времени обработки к длительности аудио, меньше — лучше.
 
 | Режим | Загрузка моделей | Время | RTF | PSS |
 |---|---:|---:|---:|---:|
@@ -503,7 +503,7 @@ dependencies {
 
 Если приложение живёт в другом репозитории, `speech/` переносится целиком вместе с `speech/local-repo/`. Собранного AAR недостаточно: `sherpa-onnx` — `implementation`-зависимость, плюс нужны assets.
 
-Требования: `minSdk >= 29`, JDK 17, Android SDK 37. Сборка приложения — `arm64-v8a` (debug и release). `:speech` сам не задаёт `abiFilters`, поэтому его инструментальные тесты и бенчмарк идут на x86_64-эмуляторе. Но `:app` режет ABI через `abiFilters += "arm64-v8a"` — на x86_64-эмуляторе такое приложение не запустится, нужен arm64-эмулятор или arm64-устройство.
+Требования: `minSdk >= 29`, JDK 17, Android SDK 37. Сборка приложения: debug — `arm64-v8a` и `x86_64`, release — `arm64-v8a` по умолчанию (`-PonwinReleaseAbi=x86_64` для эмулятора). `:speech` сам не задаёт `abiFilters`, поэтому его инструментальные тесты и бенчмарк идут на x86_64-эмуляторе. Release по умолчанию собирается только под `arm64-v8a`; для x86_64-эмулятора используйте debug-сборку или `-PonwinReleaseAbi=x86_64`.
 
 В release-сборке `:app` включена оптимизация R8. Модуль `:speech` передаёт правила сохранения JNI-классов из `consumer-rules.pro`.
 
