@@ -76,9 +76,8 @@ PSS процесса бенчмарка ~570 МБ.
 
 ## Веса
 
-ERes2Net нет в архиве `model-weights-v1.zip`: файл скачивается отдельно по
-публичной ссылке релиза sherpa-onnx (команды — в `../../INSTALL.md`),
-SHA-256 `c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5`.
+ERes2Net входит в архив `speech-models-v4.zip` — отдельно скачивать не нужно.
+SHA-256 `c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5`;
 `verifyBundledModels` и `load()` без него падают.
 
 ## Что изменилось в коде

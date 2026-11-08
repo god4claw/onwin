@@ -269,7 +269,7 @@ SpeechConfig(
 
 ## Модели
 
-Двенадцать файлов, ~406 МиБ (425,3 МБ) в APK. В git не хранятся; архив — в релизе [`model-weights`](https://github.com/god4claw/onwin/releases/tag/model-weights).
+Двенадцать файлов, ~406 МиБ (425,3 МБ) в APK. В git не хранятся; архив — в релизе [`speech-models-v4`](https://github.com/god4claw/onwin/releases/tag/speech-models-v4).
 
 | Файл в `speech/src/main/assets/` | Размер, байт | Назначение |
 |---|---:|---|
@@ -296,17 +296,17 @@ SpeechConfig(
 > `Invoke-WebRequest`, ни `curl` без токена его не скачают — не подбирайте URL.
 >
 > 1. Откройте под своей учётной записью:
->    `https://github.com/god4claw/onwin/releases/tag/model-weights`
-> 2. Assets → `model-weights-v1.zip` → скачайте в корень репозитория.
+>    `https://github.com/god4claw/onwin/releases/tag/speech-models-v4`
+> 2. Assets → `speech-models-v4.zip` → скачайте в корень репозитория.
 > 3. Распакуйте (внутри уже есть `models/`, `asr/`, `vad/`):
 
 ```powershell
-Expand-Archive -Path "model-weights-v1.zip" -DestinationPath "speech/src/main/assets" -Force
+Expand-Archive -Path "speech-models-v4.zip" -DestinationPath "speech/src/main/assets" -Force
 .\gradlew.bat :speech:verifyBundledModels
 ```
 
 ```bash
-unzip -o model-weights-v1.zip -d speech/src/main/assets
+unzip -o speech-models-v4.zip -d speech/src/main/assets
 ./gradlew :speech:verifyBundledModels
 ```
 
@@ -381,7 +381,7 @@ cp "$p/tokens.txt" speech/src/main/assets/asr/parakeet_tdt_110m_en_tokens.txt
 rm -r parakeet.tar.bz2 "$p"
 ```
 
-SHA-256 архива — `00020e21641414106a335ab4e5d2bfe18d91cc8a383d645a718344411c1c937b`.
+SHA-256 архива — `85935bb391f80369a646b8b46b059521809f8da73ea1b4316a39776b9469e3ce`.
 Для CI автоматического скачивания нет: нужен либо закешированный artifact, либо
 секрет с токеном. Подробности — в корневом [`README.md`](../README.md#2-веса).
 

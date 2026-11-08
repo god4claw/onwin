@@ -27,20 +27,20 @@ LLM-модель (резюме, имена спикеров, протокол) �
 
 ### Модели распознавания
 
-12 файлов весов кладутся в `speech/src/main/assets/`. Архив `model-weights-v1.zip`
-скачивается из релиза [`model-weights`](https://github.com/god4claw/onwin/releases/tag/model-weights).
+12 файлов весов кладутся в `speech/src/main/assets/`. Архив `speech-models-v4.zip`
+скачивается из релиза [`speech-models-v4`](https://github.com/god4claw/onwin/releases/tag/speech-models-v4).
 
 SHA-256: `85935bb391f80369a646b8b46b059521809f8da73ea1b4316a39776b9469e3ce`
 
 ```bash
-unzip -o model-weights-v1.zip -d speech/src/main/assets
+unzip -o speech-models-v4.zip -d speech/src/main/assets
 ./gradlew :speech:verifyBundledModels   # должно быть 12 файлов
 ```
 
 PowerShell:
 
 ```powershell
-Expand-Archive -Path model-weights-v1.zip -DestinationPath speech/src/main/assets -Force
+Expand-Archive -Path speech-models-v4.zip -DestinationPath speech/src/main/assets -Force
 .\gradlew.bat :speech:verifyBundledModels
 ```
 

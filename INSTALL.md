@@ -23,7 +23,7 @@ cd onwin
 
 ## 2. Веса
 
-Веса (~425 МБ) не хранятся в git — их нужно скачать один раз.
+Веса (~406 МиБ) не хранятся в git — их нужно скачать один раз.
 
 > **Репозиторий приватный — скачивание только вручную, через браузер.**
 > GitHub не поддерживает публичный доступ к отдельным файлам приватного
@@ -34,27 +34,27 @@ cd onwin
 Порядок:
 
 1. Откройте страницу релиза под своей учётной записью:
-   **Releases → `model-weights` → Assets → `model-weights-v1.zip`**
+   **Releases → `speech-models-v4` → Assets → `speech-models-v4.zip`**
    (прямая ссылка для браузера:
-   `https://github.com/god4claw/onwin/releases/tag/model-weights`).
-2. Скачайте `model-weights-v1.zip` и положите его в корень репозитория.
+   `https://github.com/god4claw/onwin/releases/tag/speech-models-v4`).
+2. Скачайте `speech-models-v4.zip` (307,4 МиБ) и положите его в корень репозитория.
 3. Распакуйте и проверьте:
 
 PowerShell:
 
 ```powershell
-Expand-Archive -Path "model-weights-v1.zip" -DestinationPath "speech/src/main/assets" -Force
+Expand-Archive -Path "speech-models-v4.zip" -DestinationPath "speech/src/main/assets" -Force
 .\gradlew.bat :speech:verifyBundledModels
 ```
 
 bash:
 
 ```bash
-unzip -o model-weights-v1.zip -d speech/src/main/assets
+unzip -o speech-models-v4.zip -d speech/src/main/assets
 ./gradlew :speech:verifyBundledModels
 ```
 
-Архив содержит файлы моделей в подкаталогах `models/`, `asr/`, `vad/`
+Архив содержит двенадцать файлов моделей в подкаталогах `models/`, `asr/`, `vad/`
 (см. таблицу в [`speech/README.md`](speech/README.md#модели)).
 
 4. Если ERes2Net (speaker embedding по умолчанию) не входит в архив —
@@ -132,7 +132,7 @@ rm -r parakeet.tar.bz2 "$p"
 Проверка целостности архива:
 
 ```powershell
-(Get-FileHash model-weights-v1.zip -Algorithm SHA256).Hash
+(Get-FileHash speech-models-v4.zip -Algorithm SHA256).Hash
 # 85935bb391f80369a646b8b46b059521809f8da73ea1b4316a39776b9469e3ce
 ```
 
