@@ -2,7 +2,7 @@
 
 Офлайн-приложение для расшифровки и диаризации русской речи на Android.
 
-Цель и прогресс проекта — в [`README.md`](README.md). Устройство движка — [`speech/README.md`](speech/README.md).
+Цель и прогресс проекта — в [`README.md`](README.md). Готовый APK и короткая инструкция — [`docs/INSTALLATION_AND_USE.md`](docs/INSTALLATION_AND_USE.md). Устройство движка — [`speech/README.md`](speech/README.md).
 
 - `:app` — Compose UI, Room и фоновая очередь обработки.
 - `:speech` — on-device движок: GigaAM-v3 (ASR), ERes2Net speaker embeddings (диаризация), Silero VAD, sherpa-onnx.
@@ -17,13 +17,13 @@
 ## 1. Клонирование
 
 ```bash
-git clone https://github.com/god4claw/private-onwin.git
-cd private-onwin
+git clone https://github.com/god4claw/onwin.git
+cd onwin
 ```
 
 ## 2. Веса
 
-Веса (~430 МБ) не хранятся в git — их нужно скачать один раз.
+Веса (~425 МБ) не хранятся в git — их нужно скачать один раз.
 
 > **Репозиторий приватный — скачивание только вручную, через браузер.**
 > GitHub не поддерживает публичный доступ к отдельным файлам приватного
@@ -34,30 +34,30 @@ cd private-onwin
 Порядок:
 
 1. Откройте страницу релиза под своей учётной записью:
-   **Releases → `speech-models-v1` → Assets → `speech-models-v1.zip`**
+   **Releases → `model-weights` → Assets → `model-weights-v1.zip`**
    (прямая ссылка для браузера:
-   `https://github.com/god4claw/private-onwin/releases/tag/speech-models-v1`).
-2. Скачайте `speech-models-v1.zip` (334 МиБ) и положите его в корень репозитория.
+   `https://github.com/god4claw/onwin/releases/tag/model-weights`).
+2. Скачайте `model-weights-v1.zip` и положите его в корень репозитория.
 3. Распакуйте и проверьте:
 
 PowerShell:
 
 ```powershell
-Expand-Archive -Path "speech-models-v1.zip" -DestinationPath "speech/src/main/assets" -Force
+Expand-Archive -Path "model-weights-v1.zip" -DestinationPath "speech/src/main/assets" -Force
 .\gradlew.bat :speech:verifyBundledModels
 ```
 
 bash:
 
 ```bash
-unzip -o speech-models-v1.zip -d speech/src/main/assets
+unzip -o model-weights-v1.zip -d speech/src/main/assets
 ./gradlew :speech:verifyBundledModels
 ```
 
-Архив содержит пять файлов моделей в подкаталогах `models/`, `asr/`, `vad/`
+Архив содержит файлы моделей в подкаталогах `models/`, `asr/`, `vad/`
 (см. таблицу в [`speech/README.md`](speech/README.md#модели)).
 
-4. ERes2Net (speaker embedding по умолчанию) в архив `speech-models-v1` не входит —
+4. Если ERes2Net (speaker embedding по умолчанию) не входит в архив —
    скачайте её отдельно, ссылка публичная (релиз sherpa-onnx):
 
 ```powershell
@@ -132,8 +132,8 @@ rm -r parakeet.tar.bz2 "$p"
 Проверка целостности архива:
 
 ```powershell
-(Get-FileHash speech-models-v1.zip -Algorithm SHA256).Hash
-# 00020e21641414106a335ab4e5d2bfe18d91cc8a383d645a718344411c1c937b
+(Get-FileHash model-weights-v1.zip -Algorithm SHA256).Hash
+# 85935bb391f80369a646b8b46b059521809f8da73ea1b4316a39776b9469e3ce
 ```
 
 > **CI.** В GitHub Actions автоматического скачивания нет: веса нужно либо
@@ -169,6 +169,8 @@ Gradle проверяет SHA-256 и включает архив в APK. Арх�
 ```
 
 ## 3. Сборка и установка
+
+APK с весами речи и встроенной LLM — ~1 ГБ.
 
 Debug-APK:
 
@@ -220,7 +222,7 @@ APK и `mapping.txt` отдельно, поскольку Gradle использ�
 
 # apksigner и zipalign из Android SDK Build Tools должны быть доступны в PATH.
 $apk = 'app\build\outputs\apk\release\app-release.apk'
-$signedApk = 'app\build\outputs\apk\release\private-onwin-arm64.apk' # Для x86_64 укажите другое имя.
+$signedApk = 'app\build\outputs\apk\release\onwin-arm64.apk' # Для x86_64 укажите другое имя.
 zipalign -c -P 16 4 $apk
 apksigner sign --ks $env:ONWIN_RELEASE_KEYSTORE --ks-key-alias $env:ONWIN_RELEASE_KEY_ALIAS --out $signedApk $apk
 apksigner verify --verbose --print-certs $signedApk

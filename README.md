@@ -1,13 +1,13 @@
 # Goal
 
-> Установка, веса и сборка — [`INSTALL.md`](INSTALL.md). Устройство движка — [`speech/README.md`](speech/README.md).
+> Установка и сборка — [`INSTALL.md`](INSTALL.md), короткая инструкция — [`docs/INSTALLATION_AND_USE.md`](docs/INSTALLATION_AND_USE.md). Архитектура — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/ARCHITECTURE_APP.md`](docs/ARCHITECTURE_APP.md); ограничения — [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md); результаты — [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md). Устройство движка — [`speech/README.md`](speech/README.md).
 
 Разработать Android-приложение, которое локально преобразует аудиозаписи разговоров в текст, автоматически определяя говорящих и разделяя их реплики. Приложение должно формировать структурированную расшифровку диалога с указанием участников и временных меток.
 
 # Progress
 
 ## :app
-Модуль использует офлайн-движок `SherpaVadTranscriber` из `:speech`. Для распознавания в APK нужны веса из [инструкции по установке](INSTALL.md#2-веса).
+Модуль использует офлайн-движок `SherpaVadTranscriber` из `:speech`. В готовом APK веса уже внутри; для сборки из исходников их нужно скачать по [инструкции](INSTALL.md#2-веса).
 
 ### Структура модуля
 
@@ -55,24 +55,26 @@ Hilt создаёт общие для приложения Room, репозит�
 Ручная проверка на телефоне: слышимая речь в WAV, разрешение и запрет уведомлений, экран блокировки, сохранение записи и отмена обработки из шторки, уведомление о готовности в фоне, конкурирующий захват микрофона, смерть процесса, работа без сети.
 
 `Не готово:`
+- APK с весами и встроенной LLM — ~1 ГБ; для устройств с небольшим объёмом памяти это ограничение.
+- Замеры производительности сняты на x86_64-эмуляторе, цифр с arm64-телефона нет.
 
 ## :speech
 Движок готов; диаризация проверена на двух голосах
 
 `Готово:`
 
-- Batch-пайплайн: pyannote segmentation + CAM++ + FastClustering → ASR GigaAM-v3 по сегментам, expectedSpeakers 1..20, AsrRunner режет куски >45 с по тихой границе.
+- Batch-пайплайн: pyannote segmentation + ERes2Net + FastClustering → ASR GigaAM-v3 по сегментам, expectedSpeakers 1..20, AsrRunner режет куски >45 с по тихой границе.
 - Диаризация проверена: `two_speaker_dialogue` (19,75 с, два голоса) — 2 спикера в batch и streaming, метки 0/1 по порядку. На 46,8-с фикстуре один TTS-голос, поэтому `spk=1` там — правильный ответ.
 - Streaming: Silero VAD (окно 512), SpeechStarted, реплика закрывается по 450 мс тишины или 25 с, ASR в отдельной корутине, очередь на 8 чанков.
-- Спикеры в streaming уже размечаются — CAM++ embedding + OnlineSpeakerClusterer по косинусу, спикер приходит в Utterance. В твоём описании v2 («спикеры пока не размечаются, speaker = 0») это уже устарело.
+- Спикеры в streaming уже размечаются — ERes2Net embedding + OnlineSpeakerClusterer по косинусу, спикер приходит в Utterance. В твоём описании v2 («спикеры пока не размечаются, speaker = 0») это уже устарело.
 - Веса в assets, INTERNET в манифесте нет, сетевой загрузки в модуле нет.
 - Тесты: JVM на VAD и кластеризацию, instrumented на bundled-модели, batch-диаризацию и стриминг; headless-бенчмарк.
-- Документация: speech/README.md, BENCHMARK.md, AUDIO_DECODING.md.
+- Документация: speech/README.md, BENCHMARK.md, docs/ARCHITECTURE.md.
 
 `Не готово:`
 
 - Цифр с arm64-телефона нет, только x86_64-эмулятор.
-- WER/DER не измеряются: эталонных транскриптов нет, качество оценивается вручную.
+- WER измерен на живых диалогах (3,7 %) и синтетике (15,1 %); DER отдельно не считается — качество спикеров измеряется ошибкой атрибуции (2,3 % на живых диалогах). Подробности — [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md).
 
 ## :llm
 Рантайм локальной LLM для правки расшифровки; проверен на эмуляторе, выигрыш по WER не измерен
@@ -85,17 +87,21 @@ Hilt создаёт общие для приложения Room, репозит�
 - `OnDeviceLlm` собирает все проходы на одной модели: `CompositeCorrector` (словарь + `LlmCorrector`), анализатор и протокол. Нет модели — `null`, приложение работает как раньше.
 - Room v3 с миграциями 1→2 и 2→3: `session_notes`, `speaker_suggestions`, `session_protocols`; на экране записи — блок «Кратко», чипы «Спикер N — Имя» и кнопка «Составить протокол» с экспортом `.md`.
 - Модель Qwen2.5-0.5B-Instruct (ONNX GenAI, int4) поставляется внутри debug и release APK. Для сборки положите `llm-model-v1.zip` в корень репозитория. Приложение распаковывает модель при первом использовании LLM. [Инструкция по сборке](INSTALL.md#2б-llm-модель).
-- AAR объявляет `INTERNET` и телеметрию: разрешения и ContentProvider вырезаны из merged-манифеста, сборка это проверяет.
+- AAR объявляет `INTERNET` и телеметрию: разрешения и ContentProvider вырезаны из merged-манифеста; проверено на собранном APK — в итоговом манифесте нет `INTERNET` и телеметрийных провайдеров.
 - Проверено на Pixel_8_API36: модель грузится, ответ на реплику ~10–15 с, гард не даёт переписать текст.
 
 `Не готово:`
 
-- Выигрыш по WER не измерен: нужен эталонный набор реплик (см. [`docs/llm-correction.md`](docs/llm-correction.md)).
+- Выигрыш по WER не измерен: нужен эталонный набор реплик (см. [`docs/benches/llm-correction.md`](docs/benches/llm-correction.md)).
 - 0.5B-модель без примеров в промпте переписывает фразу по смыслу, с примерами — повторяет дословно и ничего не исправляет. Нужен подбор промпта или модели.
-- Импорта модели в UI нет: только adb-скрипт.
+- Отдельного импорта модели в UI нет: модель распаковывается из APK, для тестов есть adb-скрипт.
 - Анализ диалога и протокол проверены JVM-тестами с поддельным генератором; на устройстве с настоящей моделью проверены только генерация и корректор. Протокол на устройстве ещё не прогнан.
 
 # Problems
+
+- APK ~1 ГБ из-за встроенной LLM-модели: для Google Play нужен asset pack или отдельная сборка без LLM.
+- Замеры только на эмуляторе; на arm64-телефоне производительность не снята.
+- DER как отдельная метрика не считается; наложения речи и группы 3–4 человек остаются слабым местом.
 
 # Notes
 
@@ -115,7 +121,7 @@ Hilt создаёт общие для приложения Room, репозит�
 - Псевдостриминг: `StreamingTranscriber` + `VadConfig`; `Flow<FloatArray>` 16 кГц / моно → VAD → offline-ASR по завершённым репликам. Текст и предварительные номера спикеров приходят по мере готовности реплик, окончательные номера — в `Done`.
 - Асинхронность: Kotlin Coroutines + Flow (`TranscriptionEvent` в batch, `StreamingEvent` в streaming; `channelFlow`, `Mutex`, `Dispatchers.IO`).
 - Аудио: `:speech` принимает только канонический WAV 16 кГц / моно / PCM16 (44-байтовый RIFF) в batch и `Flow<FloatArray>` в streaming. Декодирование mp3/m4a/ogg и разбор произвольных RIFF-чанков (`LIST`, `fact`, `WAVE_FORMAT_EXTENSIBLE`) — в `:app` (`AudioConverter` / `RiffWavReader`).
-- Размер: debug-APK с весами и двумя ABI — ~433 МБ; первая загрузка моделей читает ~348 МБ из APK в память (на эмуляторе холодная загрузка ~25–31 сек, на телефоне быстрее).
+- Размер: APK с весами речи и встроенным архивом LLM — ~1,0 ГБ (≈170 МБ база + ~425 МБ веса речи + 486 МиБ архив LLM). Первая загрузка речевых моделей читает ~425 МБ из APK (на эмуляторе холодная загрузка ~25–31 сек, на телефоне быстрее); LLM распаковывается при первом использовании и требует ещё ~838 МиБ.
 - Тесты: JUnit4 + AndroidX Instrumentation/Espresso; JVM-тесты VAD-сегментатора, instrumented-тесты проверки bundled-моделей, VAD, batch-диаризации и псевдостриминга на TTS-диалоге.
 
 # Benchmark
@@ -124,28 +130,28 @@ Headless CLI: `speech/scripts/benchmark.ps1` и `speech/scripts/benchmark.sh`. �
 
 Ключевой прогон на x86_64-эмуляторе: `two_speaker_dialogue` (19,75 с, два голоса) — batch 4,8 с (RTF 0,24), streaming 2,3 с (RTF 0,12), PSS 475/443 МБ, **2 спикера** в обоих режимах. На 46,8-с фикстуре один TTS-голос (F0 172–195 Гц, попарные косинусы ≤ 0,47), поэтому `spk=1` там корректен.
 
-A/B-замеры рефакторинга v2 (112 прогонов, BEFORE/AFTER/AFTER/BEFORE): [`docs/bench-refactor-v2.md`](docs/bench-refactor-v2.md).
+A/B-замеры рефакторинга v2 (112 прогонов, BEFORE/AFTER/AFTER/BEFORE): [`docs/benches/bench-refactor-v2.md`](docs/benches/bench-refactor-v2.md).
 
-Псевдостриминг в реальном темпе на золотом наборе (задержки, WER, атрибуция спикеров, падение batch на монологе): [`docs/bench-golden-baseline.md`](docs/bench-golden-baseline.md).
+Псевдостриминг в реальном темпе на золотом наборе (задержки, WER, атрибуция спикеров, падение batch на монологе): [`docs/benches/bench-golden-baseline.md`](docs/benches/bench-golden-baseline.md).
 
-АРУ перед VAD (дальний собеседник терялся VAD-ом): [`docs/bench-agc.md`](docs/bench-agc.md).
+АРУ перед VAD (дальний собеседник терялся VAD-ом): [`docs/benches/bench-agc.md`](docs/benches/bench-agc.md).
 
-Финальная перекластеризация спикеров в streaming (короткие ответы сливались с собеседником): [`docs/bench-recluster.md`](docs/bench-recluster.md).
+Финальная перекластеризация спикеров в streaming (короткие ответы сливались с собеседником): [`docs/benches/bench-recluster.md`](docs/benches/bench-recluster.md).
 
-Расшифровка файлов: batch против VAD-пайплайна (`SherpaVadTranscriber` — точнее, вдвое быстрее, не падает): [`docs/bench-vad-transcriber.md`](docs/bench-vad-transcriber.md).
+Расшифровка файлов: batch против VAD-пайплайна (`SherpaVadTranscriber` — точнее, вдвое быстрее, не падает): [`docs/benches/bench-vad-transcriber.md`](docs/benches/bench-vad-transcriber.md).
 
-VAD в шуме: порог Silero 0,35, сравнение с TEN VAD, проверка на новой выборке: [`docs/bench-vad-noise.md`](docs/bench-vad-noise.md).
+VAD в шуме: порог Silero 0,35, сравнение с TEN VAD, проверка на новой выборке: [`docs/benches/bench-vad-noise.md`](docs/benches/bench-vad-noise.md).
 
-Метки времени слов: спикеры по словам, границы реплик, склейка ложных разрезов: [`docs/bench-word-timestamps.md`](docs/bench-word-timestamps.md).
+Метки времени слов: спикеры по словам, границы реплик, склейка ложных разрезов: [`docs/benches/bench-word-timestamps.md`](docs/benches/bench-word-timestamps.md).
 
-ERes2Net вместо CAM++ для спикеров, набор живых диалогов: [`docs/bench-eres2net.md`](docs/bench-eres2net.md).
+ERes2Net вместо CAM++ для спикеров, набор живых диалогов: [`docs/benches/bench-eres2net.md`](docs/benches/bench-eres2net.md).
 
-Где пайплайн теряет слова: ASR по всему VAD-чанку, разрез длинных сегментов в тишине: [`docs/bench-asr-edges.md`](docs/bench-asr-edges.md).
+Где пайплайн теряет слова: ASR по всему VAD-чанку, разрез длинных сегментов в тишине: [`docs/benches/bench-asr-edges.md`](docs/benches/bench-asr-edges.md).
 
-GigaAM-v3 e2e RNN-T вместо e2e CTC: пять версий модели, эмулятор, числа и латиница: [`docs/bench-asr-rnnt.md`](docs/bench-asr-rnnt.md).
+GigaAM-v3 e2e RNN-T вместо e2e CTC: пять версий модели, эмулятор, числа и латиница: [`docs/benches/bench-asr-rnnt.md`](docs/benches/bench-asr-rnnt.md).
 
-Длинные записи: чтение WAV кусками и перекластеризация на час и больше, проверка на 76 минутах: [`docs/bench-long-audio.md`](docs/bench-long-audio.md).
+Длинные записи: чтение WAV кусками и перекластеризация на час и больше, проверка на 76 минутах: [`docs/benches/bench-long-audio.md`](docs/benches/bench-long-audio.md).
 
-Английская речь без выбора языка (GigaAM → Parakeet по латинице), Parakeet против Zipformer: [`docs/bench-english.md`](docs/bench-english.md).
+Английская речь без выбора языка (GigaAM → Parakeet по латинице), Parakeet против Zipformer: [`docs/benches/bench-english.md`](docs/benches/bench-english.md).
 
-Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/bench/`.
+Снимки прогонов лежат локально в `bench-results/` и в git не входят; в репозитории — только A/B-результаты рефакторинга в `docs/benches/bench/`.
