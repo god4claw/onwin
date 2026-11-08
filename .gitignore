@@ -18,3 +18,5 @@ llm/models/
 
 # Артефакты сборки модуля :llm.
 llm/build/
+/baselineprofile/build/
+/releases/
