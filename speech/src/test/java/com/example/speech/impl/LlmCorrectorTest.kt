@@ -88,6 +88,29 @@ class LlmCorrectorTest {
     }
 
     @Test
+    fun `html line breaks from the model never reach the transcript`() = runBlocking {
+        val source = "привет как дила"
+        for (answer in listOf(
+            "<fixed>привет как дела<br></fixed>",
+            "<br>привет как дела</br>",
+            "<br>\nпривет как дела",
+            "<fixed>привет <br/> как дела</fixed>",
+        )) {
+            assertEquals(answer, "привет как дела", LlmCorrector(FakeGenerator(answer)).correct(source))
+        }
+    }
+
+    @Test
+    fun `long phrase with leftover tags is cleaned, not kept`() = runBlocking {
+        // Раньше от <br></br> после нормализации оставалось «br br» — меньше 10 % длинной фразы,
+        // и гард пропускал теги в расшифровку.
+        val source = "мне было важно увидеть экран и оценить качество сборки перед покупкой телефона"
+        val corrector = LlmCorrector(FakeGenerator("<fixed><br>$source</br></fixed>"))
+
+        assertEquals(source, corrector.correct(source))
+    }
+
+    @Test
     fun `quoted answer and service prefix are stripped`() = runBlocking {
         val corrector = LlmCorrector(FakeGenerator("Исправленный текст: «привет как дела»"))
 

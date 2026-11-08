@@ -18,6 +18,14 @@ class CorrectionGuardTest {
     }
 
     @Test
+    fun `markup that was not in the source is rejected`() {
+        val source = "мне было важно увидеть экран и оценить качество сборки перед покупкой телефона"
+
+        assertFalse(CorrectionGuard.accepts(source, "<br>$source</br>"))
+        assertTrue(CorrectionGuard.accepts("стрелка -> вправо", "стрелка -> вправо."))
+    }
+
+    @Test
     fun `rewritten sentence is rejected`() {
         assertFalse(
             CorrectionGuard.accepts(

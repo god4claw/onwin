@@ -24,6 +24,8 @@ internal object CorrectionGuard {
 
     /** `true`, если [corrected] можно принять вместо [source]. */
     fun accepts(source: String, corrected: String): Boolean {
+        // Разметка, которой не было в исходной реплике, — мусор генератора, а не правка.
+        if (MARKUP_CHARS.any { it in corrected && it !in source }) return false
         val original = normalize(source)
         val candidate = normalize(corrected)
         if (original.isEmpty() || candidate.isEmpty()) return false
@@ -66,6 +68,8 @@ internal object CorrectionGuard {
     }
 
     private val WHITESPACE = Regex("\\s+")
+
+    private val MARKUP_CHARS = charArrayOf('<', '>')
 
     /** Всё, что не буква, не цифра и не пробел: кавычки, запятые, тире. */
     private val PUNCTUATION = Regex("""[^\p{L}\p{M}\d\s]""")

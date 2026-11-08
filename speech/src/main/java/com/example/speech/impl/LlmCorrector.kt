@@ -113,8 +113,18 @@ class LlmCorrector(
 /**
  * Достаёт текст из ответа генератора. Пробует тег `<fixed>`, иначе берёт первую
  * непустую строку без кавычек и служебных префиксов.
+ *
+ * Любые HTML-подобные теги вычищаются: просьба обернуть ответ в `<fixed>`
+ * переключает маленькую модель в «HTML-режим», и она добавляет `<br>`/`</br>`.
+ * Гард их не ловит — после нормализации от тега остаются только буквы «br», а это
+ * меньше 10 % длины длинной фразы, — и теги попадали в расшифровку.
  */
 internal object CorrectionOutputParser {
+
+    private val MARKUP = Regex("""</?\s*[A-Za-z][A-Za-z0-9]*\s*/?\s*>""")
+    private val SPACES = Regex("""\s+""")
+
+    fun clean(text: String): String = text.replace(MARKUP, " ").replace(SPACES, " ").trim()
 
     private val PREFIXES = listOf(
         "исправленный текст:",
@@ -124,10 +134,10 @@ internal object CorrectionOutputParser {
     )
 
     fun parse(raw: String): String? {
-        LlmCorrector.parseFixedTag(raw)?.let { return it }
+        LlmCorrector.parseFixedTag(raw)?.let { tagged -> clean(tagged).takeIf { it.isNotEmpty() }?.let { return it } }
 
         val line = raw.lineSequence()
-            .map { it.trim() }
+            .map { clean(it) }
             .firstOrNull { it.isNotEmpty() }
             ?: return null
 
